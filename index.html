@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>棒球棋: 戰術與動畫版 V3 (修正對齊)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    /* --- 基礎設定 --- */
+    :root {
+      --bg-color: #2b2f3a;
+      --panel-bg: #20232b;
+      --accent-color: #f8b739;
+      --field-grass: #3c6e47;
+      --field-dirt: #8d6e63;
+      --line-color: rgba(255, 255, 255, 0.8);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg-color); color: #f5f5f5;
+      display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden;
+    }
+
+    .game-wrapper {
+      width: 100%; max-width: 1100px; height: 100vh; max-height: 800px;
+      background: var(--panel-bg); border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+      padding: 12px; display: flex; flex-direction: column; gap: 10px;
+    }
+
+    /* --- 1. 頂部計分板 (LED 風格) --- */
+    .scoreboard {
+      display: grid; grid-template-columns: 1.5fr 3fr 1.2fr; gap: 10px; padding: 10px 15px;
+      background: #000; border-radius: 10px; align-items: center;
+      border: 2px solid #333;
+      box-shadow: inset 0 0 15px rgba(0,0,0,0.8);
+    }
+    
+    .team-info { display: flex; align-items: center; gap: 10px; }
+    .team-logo { 
+      width: 40px; height: 40px; border-radius: 50%; background: #444; 
+      display: grid; place-items: center; font-weight: bold; font-size: 0.9rem;
+    }
+    .vis-logo { background: #d32f2f; color: white; }
+    .home-logo { background: #1976d2; color: white; }
+
+    /* 九局記分格 */
+    .score-grid {
+      display: grid; grid-template-columns: 2.5em repeat(9, 1fr) 2em; gap: 2px; 
+      font-family: 'Courier New', monospace; font-weight: bold;
+    }
+    .score-grid .cell { 
+      background: #222; color: #555; text-align: center; padding: 4px 0; 
+      font-size: 0.85rem; border-radius: 2px;
+    }
+    .score-grid .header { color: #888; font-size: 0.6rem; background: transparent; }
+    .score-grid .total { color: var(--accent-color); font-size: 1rem; }
+    .score-grid .active-score { color: #fff; text-shadow: 0 0 5px rgba(255,255,255,0.8); }
+    .score-grid .team-name { text-align: left; padding-left: 5px; color: #fff; }
+
+    /* 好壞球 / 出局 */
+    .status-panel { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-family: monospace; }
+    .bso-row { display: flex; gap: 6px; align-items: center; font-size: 0.75rem; color: #aaa; }
+    .lights { display: flex; gap: 3px; }
+    .light { width: 8px; height: 8px; border-radius: 50%; background: #333; border: 1px solid #444; }
+    .light.on-green { background: #00e676; box-shadow: 0 0 5px #00e676; }
+    .light.on-yellow { background: #ffeb3b; box-shadow: 0 0 5px #ffeb3b; }
+    .light.on-red { background: #ff1744; box-shadow: 0 0 5px #ff1744; }
+
+    /* --- 主遊戲區 --- */
+    .main-area { flex: 1; display: grid; grid-template-columns: 1.6fr 1.4fr; gap: 12px; min-height: 0; }
+
+    /* --- 左側：球場 (幾何修正版) --- */
+    .field-container {
+      background: #181b23; border-radius: 16px; padding: 10px; position: relative;
+      display: flex; justify-content: center; align-items: center; overflow: hidden;
+    }
+    
+    .field {
+      position: relative; width: 100%; max-width: 450px; aspect-ratio: 1/1;
+      /* 草皮 */
+      background: 
+        radial-gradient(circle at 50% 50%, var(--field-dirt) 22%, transparent 23%), /* 內野泥土 */
+        linear-gradient(0deg, var(--field-grass) 50%, #2e5a36 50%); /* 草皮紋路 */
+      background-size: 100% 100%, 100% 30px;
+      border-radius: 12px; border: 4px solid #1a2e1e;
+      box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+    }
+
+    /* ★ 核心修正：內野鑽石容器 
+       使用一個正方形 div 旋轉 45 度，構成壘線。
+       所有壘包都定位在這個正方形的四個角上，保證絕對對齊。
+    */
+    .infield-diamond {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 42%; height: 42%; /* 控制內野大小 */
+      border: 2px solid var(--line-color);
+      transform: translate(-50%, -50%) rotate(-45deg); /* 逆時針轉45度，讓角朝上 */
+      box-sizing: border-box;
+      z-index: 5;
+    }
+
+    /* 壘包 (相對於 rotated diamond 定位) */
+    .base {
+      position: absolute; 
+      width: 20px; height: 20px; 
+      background: #fff; 
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+      /* 讓壘包的中心點對準線的轉角 */
+      transform: translate(0, 0); 
+    }
+
+    /* Diamond 旋轉後:
+       Top-Left 角 -> 本壘 (因為逆時針轉45度，左上角會轉到左邊...等等，我們用更直覺的方式)
+       讓我們修正思路：
+       正方形未旋轉前：
+       [TL] [TR]
+       [BL] [BR]
+       逆時針旋轉 45 度後：
+       TL 變左邊 (三壘)
+       TR 變上面 (二壘) ... 不對，這樣太複雜。
+       
+       ★ 簡單作法：旋轉 45 度 (順時針)
+       Top-Left -> 上 (二壘)
+       Top-Right -> 右 (一壘)
+       Bottom-Right -> 下 (本壘)
+       Bottom-Left -> 左 (三壘)
+    */
+    
+    .infield-diamond.rotated {
+      transform: translate(-50%, -50%) rotate(45deg);
+    }
+
+    /* 修正後的壘包位置 (掛在角的中心) */
+    .base.second { top: -10px; left: -10px; } /* Top-Left corner */
+    .base.first  { top: -10px; right: -10px; } /* Top-Right corner */
+    .base.home   { bottom: -10px; right: -10px; border-radius: 2px 2px 10px 2px; } /* Bottom-Right */
+    .base.third  { bottom: -10px; left: -10px; } /* Bottom-Left */
+
+    /* 界外線 (從本壘延伸出去) */
+    .foul-line-left {
+      position: absolute; bottom: -12px; left: -12px;
+      width: 2px; height: 300%; 
+      background: rgba(255,255,255,0.4);
+      transform-origin: top center;
+      transform: rotate(90deg); /* 向左延伸 */
+    }
+    .foul-line-right {
+      position: absolute; bottom: -12px; right: -12px;
+      width: 2px; height: 300%; 
+      background: rgba(255,255,255,0.4);
+      transform-origin: top center;
+      transform: rotate(0deg); /* 向下延伸 (視覺上的右邊，因為整個框轉了) */
+    }
+
+    /* 投手丘 (獨立於 diamond，因為它在正中心) */
+    .mound { 
+      position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; 
+      background: var(--field-dirt); border-radius: 50%; 
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(255,255,255,0.2);
+      z-index: 4;
+    }
+    .pitcher-plate {
+      position: absolute; top: 50%; left: 50%; width: 12px; height: 4px; background: #fff;
+      transform: translate(-50%, -50%);
+    }
+
+    /* 動畫元件：跑者 (這層在 field 上，不跟著 diamond 轉，避免人歪掉) */
+    .runner-dot {
+      position: absolute; width: 22px; height: 22px; 
+      background: #ffb300; border: 2px solid #fff; border-radius: 50%;
+      transform: translate(-50%, -50%) scale(0);
+      transition: top 0.6s linear, left 0.6s linear;
+      z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+      /* 預設位置 */
+      top: 50%; left: 50%;
+    }
+    .runner-dot.active { transform: translate(-50%, -50%) scale(1); }
+    .runner-dot::after { content:'🏃'; font-size: 13px; position:absolute; top:-2px; left:1px; }
+
+    /* 動畫元件：棒球 */
+    .baseball {
+      position: absolute; width: 10px; height: 10px; background: #fff; border-radius: 50%;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5); z-index: 20;
+      top: 50%; left: 50%; opacity: 0; pointer-events: none;
+    }
+    .baseball.animate { opacity: 1; transition: top 0.4s ease-out, left 0.4s ease-out; }
+
+    /* --- 右側：互動區 --- */
+    .interaction-panel { display: flex; flex-direction: column; gap: 10px; }
+
+    /* 戰術對決區 (中間插槽) */
+    .battle-slots {
+      display: flex; justify-content: center; align-items: center; gap: 10px;
+      background: #1a1a1a; padding: 10px; border-radius: 12px;
+      min-height: 110px;
+    }
+    .slot-box {
+      width: 90px; height: 100px; border: 2px dashed #444; border-radius: 8px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      transition: all 0.3s; position: relative; overflow: hidden;
+    }
+    .slot-box.filled { border-style: solid; background: #2a2a2a; border-color: #666; }
+    .slot-box.atk-filled { border-color: var(--accent-color); background: rgba(248, 183, 57, 0.1); }
+    .slot-box.def-filled { border-color: #448aff; background: rgba(68, 138, 255, 0.1); }
+    
+    .slot-icon { font-size: 2.5rem; margin-bottom: 5px; }
+    .slot-label { font-size: 0.7rem; color: #888; text-transform: uppercase; }
+    .slot-name { font-size: 0.8rem; font-weight: bold; text-align: center; line-height: 1.1; }
+
+    /* 卡牌區 (左右分開) */
+    .decks-container { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1; }
+    
+    .deck-column { display: flex; flex-direction: column; gap: 6px; }
+    .deck-header { font-size: 0.8rem; text-align: center; padding-bottom: 4px; border-bottom: 2px solid #333; margin-bottom: 4px; }
+    
+    .card {
+      background: #2c303a; border-radius: 8px; padding: 8px; cursor: pointer;
+      display: flex; align-items: center; gap: 8px; border: 1px solid transparent;
+      transition: transform 0.1s, background 0.2s;
+    }
+    .card:hover { background: #353a45; transform: translateY(-2px); }
+    .card.selected { border-color: #fff; background: #444; }
+    .card.disabled { opacity: 0.4; pointer-events: none; filter: grayscale(1); }
+
+    .card-icon { font-size: 1.8rem; width: 40px; text-align: center; }
+    .card-info { flex: 1; }
+    .card-title { font-size: 0.9rem; font-weight: bold; color: #eee; }
+    .card-effect { font-size: 0.65rem; color: #aaa; }
+
+    /* 控制區 (骰子 + 按鈕) */
+    .controls {
+      background: #252a36; padding: 10px; border-radius: 12px;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+    
+    .dice-display { display: flex; gap: 15px; margin-bottom: 5px; }
+    .die {
+      width: 48px; height: 48px; background: #eee; border-radius: 8px; color: #222;
+      font-size: 1.6rem; font-weight: 800; display: grid; place-items: center;
+      box-shadow: 0 4px 0 #bbb;
+    }
+    .die.rolling { animation: shake 0.2s infinite; background: #ddd; }
+
+    .status-text { text-align: center; height: 2.5em; display: flex; flex-direction: column; justify-content: center; }
+    .main-status { font-size: 1.1rem; font-weight: bold; color: #fff; }
+    .sub-status { font-size: 0.8rem; color: #f8b739; }
+
+    .play-btn {
+      width: 100%; padding: 12px; border-radius: 50px; border: none;
+      background: linear-gradient(135deg, #f8b739, #e6a320);
+      font-size: 1.1rem; font-weight: bold; color: #222; cursor: pointer;
+      box-shadow: 0 4px 10px rgba(248, 183, 57, 0.4);
+      transition: transform 0.1s;
+    }
+    .play-btn:active { transform: scale(0.98); }
+    .play-btn:disabled { background: #555; color: #888; box-shadow: none; }
+
+    @keyframes shake { 0% {transform:rotate(5deg);} 50% {transform:rotate(-5deg);} 100% {transform:rotate(5deg);} }
+
+  </style>
+</head>
+<body>
+
+<div class="game-wrapper">
+  
+  <header class="scoreboard">
+    <div class="team-info">
+      <div class="team-logo vis-logo">V</div>
+      <div style="font-weight:bold; color:#d32f2f">VISITOR</div>
+    </div>
+    <div class="score-grid">
+      <div class="cell header"></div>
+      <div class="cell header">1</div><div class="cell header">2</div><div class="cell header">3</div>
+      <div class="cell header">4</div><div class="cell header">5</div><div class="cell header">6</div>
+      <div class="cell header">7</div><div class="cell header">8</div><div class="cell header">9</div>
+      <div class="cell header total">R</div>
+
+      <div class="cell team-name">VIS</div>
+      <div class="cell active-score">0</div><div class="cell">0</div><div class="cell">2</div>
+      <div class="cell">.</div><div class="cell">.</div><div class="cell">.</div>
+      <div class="cell">.</div><div class="cell">.</div><div class="cell">.</div>
+      <div class="cell total">2</div>
+
+      <div class="cell team-name">HOME</div>
+      <div class="cell">1</div><div class="cell">0</div><div class="cell">.</div>
+      <div class="cell">.</div><div class="cell">.</div><div class="cell">.</div>
+      <div class="cell">.</div><div class="cell">.</div><div class="cell">.</div>
+      <div class="cell total">1</div>
+    </div>
+    <div class="status-panel">
+      <div class="bso-row">
+        <span>B</span> <div class="lights"><div class="light on-green"></div><div class="light on-green"></div><div class="light"></div><div class="light"></div></div>
+      </div>
+      <div class="bso-row">
+        <span>S</span> <div class="lights"><div class="light on-yellow"></div><div class="light"></div><div class="light"></div></div>
+      </div>
+      <div class="bso-row">
+        <span>O</span> <div class="lights"><div class="light on-red"></div><div class="light"></div></div>
+      </div>
+      <div style="margin-top:4px; font-size:0.9rem; color:#fff;">3局上</div>
+    </div>
+  </header>
+
+  <main class="main-area">
+    <!-- 左側球場 -->
+    <section class="field-container">
+      <div class="field">
+        <!-- 中央投手丘 -->
+        <div class="mound"></div>
+        <div class="pitcher-plate"></div>
+        
+        <!-- 核心：旋轉的鑽石容器，包含白線與壘包 -->
+        <div class="infield-diamond rotated">
+          <div class="base second"></div>
+          <div class="base first"></div>
+          <div class="base third"></div>
+          <div class="base home">
+            <!-- 界外線從本壘延伸 -->
+            <div class="foul-line-left"></div>
+            <div class="foul-line-right"></div>
+          </div>
+        </div>
+        
+        <!-- 動畫物件 -->
+        <div class="baseball" id="ball"></div>
+        <div class="runner-dot" id="runner-0" style="display:none;"></div>
+        <div class="runner-dot" id="runner-1"></div>
+        <div class="runner-dot" id="runner-2"></div>
+        <div class="runner-dot" id="runner-3"></div>
+      </div>
+    </section>
+
+    <!-- 右側互動 -->
+    <section class="interaction-panel">
+      <div class="battle-slots">
+        <div class="slot-box" id="slot-atk">
+          <div class="slot-icon" id="icon-atk">⚔️</div>
+          <div class="slot-label">攻方 ATK</div>
+          <div class="slot-name" id="name-atk">等待選擇</div>
+        </div>
+        <div style="font-weight:900; font-style:italic; color:#555; font-size:1.5rem;">VS</div>
+        <div class="slot-box" id="slot-def">
+          <div class="slot-icon" id="icon-def">🛡️</div>
+          <div class="slot-label">守方 DEF</div>
+          <div class="slot-name" id="name-def">等待選擇</div>
+        </div>
+      </div>
+
+      <div class="decks-container">
+        <div class="deck-column">
+          <div class="deck-header" style="color:#f8b739">攻方 (VIS)</div>
+          <div class="card" onclick="selectCard('atk', 'power', '全力揮擊', '💪', this)">
+            <div class="card-icon">💪</div>
+            <div class="card-info">
+              <div class="card-title">全力揮擊</div>
+              <div class="card-effect">一安→二安<br>二安→全壘打</div>
+            </div>
+          </div>
+          <div class="card" onclick="selectCard('atk', 'eye', '選球眼', '👁️', this)">
+            <div class="card-icon">👁️</div>
+            <div class="card-info">
+              <div class="card-title">選球眼</div>
+              <div class="card-effect">4-6點 重骰</div>
+            </div>
+          </div>
+        </div>
+        <div class="deck-column">
+          <div class="deck-header" style="color:#448aff">守方 (HOME)</div>
+          <div class="card" onclick="selectCard('def', 'shift', '守備佈陣', '🧤', this)">
+            <div class="card-icon">🧤</div>
+            <div class="card-info">
+              <div class="card-title">守備佈陣</div>
+              <div class="card-effect">一安→滾地出局</div>
+            </div>
+          </div>
+          <div class="card" onclick="selectCard('def', 'wall', '鐵壁防守', '🧱', this)">
+            <div class="card-icon">🧱</div>
+            <div class="card-info">
+              <div class="card-title">鐵壁防守</div>
+              <div class="card-effect">長打變一安</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="dice-display">
+          <div class="die" id="d1">?</div>
+          <div class="die" id="d2">?</div>
+        </div>
+        <div class="status-text">
+          <div class="main-status" id="main-status">請選擇戰術卡</div>
+          <div class="sub-status" id="sub-status">準備開始</div>
+        </div>
+        <button class="play-btn" id="play-btn" onclick="startTurn()">擲骰子 (ROLL)</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  /*
+    座標計算說明 (Field 450x450):
+    Center: 50%, 50%
+    Diamond Width: 42% (相對於 field)
+    
+    Offset (中心到角的距離):
+    Side = 42
+    Diagonal = 42 * 1.414 = 59.388
+    Half-Diagonal (Radius) = 29.69%
+    
+    Positions (Top, Left):
+    Home:   50% + 29.7% = 79.7% (Top), 50% (Left)
+    Second: 50% - 29.7% = 20.3% (Top), 50% (Left)
+    First:  50% (Top), 50% + 29.7% = 79.7% (Left)
+    Third:  50% (Top), 50% - 29.7% = 20.3% (Left)
+  */
+  
+  const POSITIONS = {
+    home:    { top: '79.7%', left: '50%' },
+    first:   { top: '50%',   left: '79.7%' },
+    second:  { top: '20.3%', left: '50%' },
+    third:   { top: '50%',   left: '20.3%' },
+    pitcher: { top: '50%',   left: '50%' },
+    
+    // Outfield positions
+    outfieldLeft:  { top: '15%', left: '20%' },
+    outfieldRight: { top: '15%', left: '80%' },
+    infield:       { top: '35%', left: '65%' }
+  };
+
+  let gameState = {
+    phase: 'PLANNING', 
+    runners: [false, false, false],
+    selectedAtk: null,
+    selectedDef: null
+  };
+  
+  // 模擬一壘有人
+  gameState.runners = [true, false, false];
+  updateRunnersDisplay();
+
+  const ball = document.getElementById('ball');
+  const d1 = document.getElementById('d1');
+  const d2 = document.getElementById('d2');
+  const statusMain = document.getElementById('main-status');
+  const statusSub = document.getElementById('sub-status');
+  const btn = document.getElementById('play-btn');
+
+  function selectCard(side, id, name, icon, el) {
+    if (gameState.phase !== 'PLANNING') return;
+    const col = el.parentElement;
+    col.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+
+    const slotBox = document.getElementById(`slot-${side}`);
+    const slotIcon = document.getElementById(`icon-${side}`);
+    const slotName = document.getElementById(`name-${side}`);
+
+    let currentSelection = side === 'atk' ? gameState.selectedAtk : gameState.selectedDef;
+
+    if (currentSelection && currentSelection.id === id) {
+      if (side === 'atk') gameState.selectedAtk = null;
+      else gameState.selectedDef = null;
+      
+      slotBox.classList.remove('filled', `${side}-filled`);
+      slotIcon.innerText = side === 'atk' ? '⚔️' : '🛡️';
+      slotName.innerText = '無戰術';
+    } else {
+      el.classList.add('selected');
+      const data = { id, name, icon };
+      if (side === 'atk') gameState.selectedAtk = data;
+      else gameState.selectedDef = data;
+
+      slotBox.classList.add('filled', `${side}-filled`);
+      slotIcon.innerText = icon;
+      slotName.innerText = name;
+      slotBox.animate([{transform:'scale(1)'}, {transform:'scale(1.1)'}, {transform:'scale(1)'}], 200);
+    }
+  }
+
+  function startTurn() {
+    if (gameState.phase === 'RESOLVED') {
+      resetTurn();
+      return;
+    }
+    
+    gameState.phase = 'ROLLING';
+    btn.disabled = true;
+    statusMain.innerText = "投球中...";
+    statusSub.innerText = "Pitching...";
+    
+    document.querySelectorAll('.card').forEach(c => c.classList.add('disabled'));
+
+    resetBallPosition('pitcher');
+    ball.classList.add('animate');
+    moveBallTo('home', 600);
+    
+    d1.classList.add('rolling');
+    d2.classList.add('rolling');
+
+    setTimeout(() => {
+      const v1 = Math.floor(Math.random()*6)+1;
+      const v2 = Math.floor(Math.random()*6)+1;
+      d1.innerText = v1;
+      d2.innerText = v2;
+      d1.classList.remove('rolling');
+      d2.classList.remove('rolling');
+
+      const total = v1 + v2;
+      resolveResult(total);
+    }, 800);
+  }
+
+  function resolveResult(total) {
+    gameState.phase = 'ANIMATING';
+    
+    let type = 'Out';
+    if (total === 2 || total === 12) type = 'HR';
+    else if (total >= 9) type = 'Double';
+    else if (total >= 7) type = 'Single';
+    else if (total <= 3) type = 'StrikeOut';
+    else type = 'GroundOut';
+
+    let msg = `原始結果: ${type}`;
+    if (gameState.selectedAtk && type === 'Single' && gameState.selectedAtk.id === 'power') {
+      type = 'Double';
+      msg = "全力揮擊！變成長打！";
+    }
+    if (gameState.selectedDef && type === 'Single' && gameState.selectedDef.id === 'shift') {
+      type = 'GroundOut';
+      msg = "守備佈陣成功！攔截！";
+    }
+
+    statusMain.innerText = type;
+    statusSub.innerText = msg;
+    statusSub.style.color = "#f8b739";
+
+    performFieldAnimation(type);
+
+    setTimeout(() => {
+      endTurn();
+    }, 2500);
+  }
+
+  function resetBallPosition(posName) {
+    ball.style.top = POSITIONS[posName].top;
+    ball.style.left = POSITIONS[posName].left;
+    ball.style.opacity = 1;
+  }
+
+  function moveBallTo(posName, duration = 500) {
+    ball.style.transition = `top ${duration}ms ease-out, left ${duration}ms ease-out`;
+    void ball.offsetWidth;
+    ball.style.top = POSITIONS[posName].top;
+    ball.style.left = POSITIONS[posName].left;
+  }
+
+  function performFieldAnimation(type) {
+    if (type === 'StrikeOut') {
+      ball.style.opacity = 0;
+    } else if (type === 'GroundOut') {
+      moveBallTo('infield', 400);
+    } else if (type === 'Single') {
+      moveBallTo('outfieldRight', 600);
+    } else if (type === 'Double') {
+      moveBallTo('outfieldLeft', 800);
+    } else if (type === 'HR') {
+      ball.style.transition = "top 1s ease-in, left 1s linear, transform 1s ease-in";
+      ball.style.top = "-10%";
+      ball.style.left = "20%";
+      ball.style.transform = "scale(0.5)";
+    }
+
+    if (['Single', 'Double', 'HR'].includes(type)) {
+      const batter = document.getElementById('runner-0');
+      batter.style.display = 'block';
+      batter.style.top = POSITIONS.home.top;
+      batter.style.left = POSITIONS.home.left;
+      batter.classList.add('active');
+      
+      setTimeout(() => {
+        batter.style.top = POSITIONS.first.top;
+        batter.style.left = POSITIONS.first.left;
+        
+        if (type === 'Double' || type === 'HR') {
+          setTimeout(() => {
+            batter.style.top = POSITIONS.second.top;
+            batter.style.left = POSITIONS.second.left;
+             if(type === 'HR') {
+                setTimeout(() => { /* home logic */ }, 500);
+             }
+          }, 600);
+        }
+      }, 100);
+
+      if (gameState.runners[0]) {
+        const r1 = document.getElementById('runner-1');
+        r1.style.top = POSITIONS.second.top;
+        r1.style.left = POSITIONS.second.left;
+      }
+    }
+  }
+
+  function updateRunnersDisplay() {
+    const bases = ['first', 'second', 'third'];
+    for(let i=0; i<3; i++) {
+      const el = document.getElementById(`runner-${i+1}`);
+      if (gameState.runners[i]) {
+        el.classList.add('active');
+        el.style.top = POSITIONS[bases[i]].top;
+        el.style.left = POSITIONS[bases[i]].left;
+      } else {
+        el.classList.remove('active');
+      }
+    }
+  }
+
+  function endTurn() {
+    gameState.phase = 'RESOLVED';
+    btn.disabled = false;
+    btn.innerText = "下一打席 (重置)";
+  }
+
+  function resetTurn() {
+    gameState.phase = 'PLANNING';
+    gameState.selectedAtk = null;
+    gameState.selectedDef = null;
+    
+    document.querySelectorAll('.card').forEach(c => {
+      c.classList.remove('selected', 'disabled');
+    });
+    document.getElementById('slot-atk').className = 'slot-box';
+    document.getElementById('slot-def').className = 'slot-box';
+    document.getElementById('icon-atk').innerText = '⚔️';
+    document.getElementById('icon-def').innerText = '🛡️';
+    document.getElementById('name-atk').innerText = '等待選擇';
+    document.getElementById('name-def').innerText = '等待選擇';
+    
+    ball.style.opacity = 0;
+    ball.style.transform = "none";
+    document.getElementById('runner-0').style.display = 'none';
+    
+    d1.innerText = "?";
+    d2.innerText = "?";
+    statusMain.innerText = "請選擇戰術卡";
+    statusSub.innerText = "準備開始";
+    statusSub.style.color = "#f8b739";
+    btn.innerText = "擲骰子 (ROLL)";
+
+    if (Math.random() > 0.5) gameState.runners = [true, false, true]; 
+    else gameState.runners = [false, true, false];
+    updateRunnersDisplay();
+  }
+</script>
+</body>
+</html>

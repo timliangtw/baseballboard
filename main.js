@@ -80,7 +80,7 @@ function rollInitiative(player) {
         const res = document.getElementById('initiative-result');
         if (appState.p1Roll > appState.p2Roll) { res.innerText = "P1 主隊 (後攻)"; appState.homeTeam = 'P1'; appState.visTeam = 'P2'; }
         else { res.innerText = "P2 主隊 (後攻)"; appState.homeTeam = 'P2'; appState.visTeam = 'P1'; }
-        document.getElementById('btn-go-draw').style.display = 'block';
+        document.getElementById('btn-go-draw').style.display = 'inline-block';
     }
 }
 function goToDraw() { document.getElementById('step-initiative').style.display = 'none'; document.getElementById('step-draw').style.display = 'block'; }

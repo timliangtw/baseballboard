@@ -98,6 +98,7 @@ function startGameFromSetup() {
     document.documentElement.style.setProperty('--vis-color', appState.visTeam === 'P1' ? appState.p1Color : appState.p2Color);
     document.documentElement.style.setProperty('--home-color', appState.homeTeam === 'P1' ? appState.p1Color : appState.p2Color);
     updateHandUI('vis'); updateHandUI('home');
+    updateFieldersDisplay();
     document.getElementById('setup-screen').classList.add('hidden');
     document.getElementById('main-game').classList.remove('blur');
 }
@@ -243,58 +244,51 @@ function resolveResult(v1, v2) {
 }
 
 function handleGameLogic(type) {
-    // Simplified Logic mapping complex outcomes to simple runner logic
-    // Treat 'Fly Out', 'Pop Out', 'Strike Out' as Outs.
-    // 'Ground Out' -> Out (ignore force play complexity for now)
-    // 'Double Play' -> 2 Outs
-    // 'Sacrifice Fly' -> Out but runner scores from 3rd
-
-    if (['Single', 'Walk'].includes(type)) {
-        if (appState.runners[2]) appState.score[appState.isTop ? 'vis' : 'home']++;
-        appState.runners[2] = appState.runners[1]; appState.runners[1] = appState.runners[0]; appState.runners[0] = true;
-    } else if (type === 'Double') {
-        if (appState.runners[2]) appState.score[appState.isTop ? 'vis' : 'home']++;
-        if (appState.runners[1]) appState.score[appState.isTop ? 'vis' : 'home']++;
-        appState.runners[2] = appState.runners[0]; appState.runners[1] = true; appState.runners[0] = false;
-    } else if (type === 'Triple') {
-        if (appState.runners[2]) appState.score[appState.isTop ? 'vis' : 'home']++;
-        if (appState.runners[1]) appState.score[appState.isTop ? 'vis' : 'home']++;
-        if (appState.runners[0]) appState.score[appState.isTop ? 'vis' : 'home']++;
-        appState.runners = [false, false, true];
-    } else if (type === 'Home Run') {
-        let runs = 1 + (appState.runners[0] ? 1 : 0) + (appState.runners[1] ? 1 : 0) + (appState.runners[2] ? 1 : 0);
-        appState.score[appState.isTop ? 'vis' : 'home'] += runs;
-        appState.runners = [false, false, false];
-    } else if (type === 'Sacrifice Fly') {
+    if (['Single', 'Walk', 'Double', 'Triple', 'Home Run'].includes(type)) {
+        handleRunnerAdvance(type);
+    }
+    else if (type === 'Sacrifice Fly') {
         appState.outs++;
-        if (appState.runners[2] && appState.outs < 3) {
-            appState.score[appState.isTop ? 'vis' : 'home']++;
-            appState.runners[2] = false;
+        // Sacrifice Fly: Runner on 3rd scores.
+        if (baseOccupancy[2] !== null) {
+            handleRunnerAdvance('Sacrifice Fly');
         }
-    } else if (type === 'Double Play') {
-        appState.outs++;
-        if (appState.outs < 3) appState.outs++; // Add another out
-        // Clear lead runner for simplicity
-        if (appState.runners[0]) appState.runners[0] = false;
-    } else {
+    }
+    else if (type === 'Double Play') {
+        // Rule E: Double Play
+        // If 0 or 1 out AND runner on 1st: Batter out + 1st runner out (+2 outs).
+        if (baseOccupancy[0] !== null && appState.outs < 2) {
+            appState.outs += 2;
+            // Out the runner on 1st
+            const rIdx = baseOccupancy[0];
+            resetRunner(rIdx);
+            baseOccupancy[0] = null;
+        } else {
+            appState.outs++;
+        }
+    }
+    else {
         // All other Outs
         appState.outs++;
     }
 
     updateScoreboard();
-    updateRunnersDisplay();
 }
 
 function updateScoreboard() {
     document.getElementById('score-vis-total').innerText = appState.score.vis;
     document.getElementById('score-home-total').innerText = appState.score.home;
+    document.getElementById('inning-display').innerText = `${appState.inning}局${appState.isTop ? '上' : '下'}`;
     for (let i = 1; i <= 2; i++) document.getElementById(`light-o${i}`).className = `light ${i <= appState.outs ? 'on-red' : ''}`;
 
     if (appState.outs >= 3) {
-        appState.outs = 0; appState.runners = [false, false, false]; appState.isTop = !appState.isTop;
+        appState.outs = 0;
+        clearRunners(); // Clear new system runners
+        appState.isTop = !appState.isTop;
         if (appState.isTop) appState.inning++;
         statusMain.innerText = "攻守交換";
         updateHandUI('vis'); updateHandUI('home');
+        updateFieldersDisplay();
     }
 }
 
@@ -303,30 +297,272 @@ function resetBallPosition(posName) { ball.style.top = POSITIONS[posName].top; b
 function moveBallTo(posName, d = 500) { ball.style.transition = `top ${d}ms ease-out, left ${d}ms ease-out`; void ball.offsetWidth; ball.style.top = POSITIONS[posName].top; ball.style.left = POSITIONS[posName].left; }
 
 function performFieldAnimation(type) {
-    if (['Strike Out', 'Fly Out', 'Pop Out', 'Double Play'].includes(type)) ball.style.opacity = 0;
-    else if (['Ground Out'].includes(type)) moveBallTo('infield', 400);
-    else if (['Single', 'Walk', 'Sacrifice Fly'].includes(type)) moveBallTo('outfieldRight', 600);
-    else if (['Double', 'Triple'].includes(type)) moveBallTo('outfieldLeft', 800);
-    else if (type === 'Home Run') {
-        ball.style.transition = "top 1s ease-in, left 1s linear, transform 1s ease-in";
-        ball.style.top = "-10%"; ball.style.left = "20%"; ball.style.transform = "scale(0.5)";
-    }
+    // 1. Reset to Pitcher
+    ball.style.transition = 'none';
+    ball.style.opacity = 1;
+    ball.style.top = POSITIONS['pitcher'].top;
+    ball.style.left = POSITIONS['pitcher'].left;
+    ball.style.transform = "none";
+
+    // 2. Animate Pitch (Pitcher -> Home)
+    setTimeout(() => {
+        ball.style.transition = "top 0.3s linear, left 0.3s linear";
+        ball.style.top = POSITIONS['home'].top;
+        ball.style.left = POSITIONS['home'].left;
+    }, 50);
+
+    // 3. Animate Hit (Home -> Target) after pitch arrives
+    setTimeout(() => {
+        if (['Strike Out'].includes(type)) {
+            ball.style.opacity = 1;
+            // Strike out: ball stays at catcher (home) or slightly behind
+            moveBallTo('C', 200);
+        }
+        else if (['Fly Out', 'Pop Out'].includes(type)) {
+            const targets = ['LF', 'CF', 'RF', 'SS', 'B2'];
+            const target = targets[Math.floor(Math.random() * targets.length)];
+            moveBallTo(target, 800);
+        }
+        else if (['Ground Out', 'Double Play'].includes(type)) {
+            const targets = ['B1', 'B2', 'B3', 'SS', 'P'];
+            const target = targets[Math.floor(Math.random() * targets.length)];
+            moveBallTo(target, 400);
+        }
+        else if (['Single'].includes(type)) {
+            moveBallTo('B1', 500);
+        }
+        else if (['Walk'].includes(type)) {
+            // Walk: Player goes to 1st, ball irrelevant, but maybe just stay at home
+            ball.style.opacity = 0;
+        }
+        else if (['Sacrifice Fly'].includes(type)) {
+            moveBallTo('CF', 700);
+        }
+        else if (['Double'].includes(type)) {
+            moveBallTo('outfieldLeft', 800);
+        }
+        else if (['Triple'].includes(type)) {
+            moveBallTo('outfieldRight', 900);
+        }
+        else if (type === 'Home Run') {
+            ball.style.transition = "top 1s ease-in, left 1s linear, transform 1s ease-in";
+            ball.style.top = "-10%"; ball.style.left = "20%"; ball.style.transform = "scale(0.5)";
+        }
+    }, 400); // Wait for pitch (300ms) + small buffer
 }
 function updateRunnersDisplay() {
-    const bases = ['first', 'second', 'third'];
-    for (let i = 0; i < 3; i++) {
-        const el = document.getElementById(`runner-${i + 1}`);
-        el.className = `runner-dot ${appState.isTop ? '' : 'home-team'} ${appState.runners[i] ? 'active' : ''}`;
-        if (appState.runners[i]) { el.style.top = POSITIONS[bases[i]].top; el.style.left = POSITIONS[bases[i]].left; }
+    // Deprecated: Logic moved to animateRunnerMove
+}
+function updateFieldersDisplay() {
+    // Defense is HOME if isTop is true (Visitor batting), else VISitor is defense.
+    const isHomeDefense = appState.isTop;
+    const defColor = isHomeDefense ? appState.p2Color : appState.p1Color; // P2 is home, P1 is vis
+    // Wait, initial Setup might have P1 as Home? 
+    // appState.homeTeam stores 'P1' or 'P2'.
+    // If appState.homeTeam == 'P1', then P1 color is home color.
+    // If appState.visTeam == 'P1', then P1 color is vis color.
+    // simpler: calculate current defense color
+    let color;
+    if (appState.isTop) {
+        // Top of inning: Home team defends.
+        color = (appState.homeTeam === 'P1') ? appState.p1Color : appState.p2Color;
+    } else {
+        // Bottom of inning: Visitor team defends.
+        color = (appState.visTeam === 'P1') ? appState.p1Color : appState.p2Color;
     }
+
+    const positions = ['P', 'C', 'B1', 'B2', 'B3', 'SS', 'LF', 'CF', 'RF'];
+    positions.forEach(pos => {
+        const el = document.getElementById(`f-${pos}`);
+        if (el) {
+            el.style.backgroundColor = color;
+            el.style.top = POSITIONS[pos].top;
+            el.style.left = POSITIONS[pos].left;
+        }
+    });
 }
 function endTurn() { appState.phase = 'RESOLVED'; btn.disabled = false; btn.innerText = "下一打席"; }
 function resetTurn() {
     appState.phase = 'PLANNING'; appState.selectedAtk = null; appState.selectedDef = null;
     updateSlot('atk', null); updateSlot('def', null);
     updateHandUI('vis'); updateHandUI('home');
-    ball.style.opacity = 0; ball.style.transform = "none";
+    ball.style.opacity = 0; ball.style.transform = "none"; ball.style.transition = "none";
     d1.innerText = "?"; d2.innerText = "?"; statusMain.innerText = "請選擇戰術卡"; btn.innerText = "擲骰子 (ROLL)";
 }
 
+/* --- Runner Logic --- */
+const runnerEntities = [
+    { id: 'runner-entity-0', el: null, active: false, currentBase: -1 }, // -1: home, 0: 1st, 1: 2nd, 2: 3rd
+    { id: 'runner-entity-1', el: null, active: false, currentBase: -1 },
+    { id: 'runner-entity-2', el: null, active: false, currentBase: -1 },
+    { id: 'runner-entity-3', el: null, active: false, currentBase: -1 }
+];
+let baseOccupancy = [null, null, null]; // [0] -> 1B, [1] -> 2B, [2] -> 3B (stores index in runnerEntities or null)
+
+function initRunners() {
+    runnerEntities.forEach((r, i) => {
+        r.el = document.getElementById(r.id);
+        resetRunner(i);
+    });
+    baseOccupancy = [null, null, null];
+}
+
+function resetRunner(idx) {
+    const r = runnerEntities[idx];
+    r.active = false;
+    r.currentBase = -1;
+    if (r.el) {
+        r.el.style.display = 'none';
+        r.el.style.top = POSITIONS.home.top;
+        r.el.style.left = POSITIONS.home.left;
+        r.el.style.transform = 'translate(-50%, -50%) scale(0)';
+        r.el.style.transition = 'none';
+        r.el.className = 'runner-dot';
+    }
+}
+
+function getAvailableRunnerIndex() {
+    return runnerEntities.findIndex(r => !r.active);
+}
+
+function animateRunnerMove(runnerIdx, targetBaseIdx, onComplete) {
+    const r = runnerEntities[runnerIdx];
+    if (!r.el) return;
+
+    r.active = true;
+    r.el.style.display = 'block';
+
+    // Determine path
+    // Bases: -1 (Home), 0 (1B), 1 (2B), 2 (3B)
+    // Target uses same indices. 3 denotes Scoring (Home again) but logic might differ.
+    // Let's standardize: 0=1B, 1=2B, 2=3B, 3=Home(Score)
+
+    let path = [];
+    let start = r.currentBase;
+
+    // Build path step by step (e.g. -1 -> 0 -> 1)
+    // If scoring, target is 3.
+    for (let b = start + 1; b <= targetBaseIdx; b++) {
+        if (b === 0) path.push(POSITIONS.first);
+        else if (b === 1) path.push(POSITIONS.second);
+        else if (b === 2) path.push(POSITIONS.third);
+        else if (b === 3) path.push(POSITIONS.home);
+    }
+
+    if (path.length === 0) { if (onComplete) onComplete(); return; }
+
+    let stepIdx = 0;
+
+    // Activate scale if starting from home batter
+    if (start === -1) {
+        r.el.style.transform = 'translate(-50%, -50%) scale(1)';
+    }
+
+    // Set Team Color
+    r.el.className = `runner-dot ${appState.isTop ? '' : 'home-team'} active`;
+
+    function nextStep() {
+        if (stepIdx >= path.length) {
+            r.currentBase = targetBaseIdx;
+            if (targetBaseIdx === 3) {
+                // Scored! Reset runner
+                resetRunner(runnerIdx);
+            }
+            if (onComplete) onComplete();
+            return;
+        }
+
+        const pos = path[stepIdx];
+        r.el.style.transition = "top 0.6s linear, left 0.6s linear";
+        r.el.style.top = pos.top;
+        r.el.style.left = pos.left;
+
+        stepIdx++;
+        setTimeout(nextStep, 600); // Wait for transition
+    }
+
+    // Small delay to ensure display:block applies
+    setTimeout(nextStep, 50);
+}
+
+function handleRunnerAdvance(hitType) {
+    // 1. Identify moves
+    // Moves: [{ runnerIdx, targetBase }]
+    let moves = [];
+    let scoreCount = 0;
+
+    // Existing runners (3B -> 2B -> 1B)
+    // 3B
+    if (baseOccupancy[2] !== null) {
+        let rIdx = baseOccupancy[2];
+        if (['Single', 'Double', 'Triple', 'Home Run', 'Walk', 'Sacrifice Fly'].includes(hitType)) {
+            moves.push({ idx: rIdx, target: 3 });
+            baseOccupancy[2] = null;
+            scoreCount++;
+        }
+    }
+
+    // 2B
+    if (baseOccupancy[1] !== null) {
+        let rIdx = baseOccupancy[1];
+        if (['Single', 'Walk'].includes(hitType)) {
+            moves.push({ idx: rIdx, target: 2 }); // to 3B
+        } else if (['Double', 'Triple', 'Home Run'].includes(hitType)) {
+            moves.push({ idx: rIdx, target: 3 }); // Score
+            scoreCount++;
+        }
+        baseOccupancy[1] = null;
+    }
+
+    // 1B
+    if (baseOccupancy[0] !== null) {
+        let rIdx = baseOccupancy[0];
+        if (['Single', 'Walk'].includes(hitType)) {
+            moves.push({ idx: rIdx, target: 1 }); // to 2B
+        } else if (['Double'].includes(hitType)) {
+            moves.push({ idx: rIdx, target: 2 }); // to 3B
+        } else if (['Triple', 'Home Run'].includes(hitType)) {
+            moves.push({ idx: rIdx, target: 3 }); // Score
+            scoreCount++;
+        }
+        baseOccupancy[0] = null;
+    }
+
+    // Batter
+    if (['Single', 'Double', 'Triple', 'Home Run', 'Walk'].includes(hitType)) {
+        let newRunnerIdx = getAvailableRunnerIndex();
+        if (newRunnerIdx !== -1) {
+            let target = 0; // 1B
+            if (hitType === 'Double') target = 1;
+            if (hitType === 'Triple') target = 2;
+            if (hitType === 'Home Run') { target = 3; scoreCount++; }
+            if (hitType === 'Walk') target = 0;
+
+            moves.push({ idx: newRunnerIdx, target: target });
+        }
+    }
+
+    // Apply Logic Updates to Occupancy Map
+    moves.forEach(m => {
+        if (m.target < 3) {
+            baseOccupancy[m.target] = m.idx;
+        }
+    });
+
+    // Execute Animations
+    moves.forEach(m => {
+        animateRunnerMove(m.idx, m.target);
+    });
+
+    // Update Score
+    appState.score[appState.isTop ? 'vis' : 'home'] += scoreCount;
+    updateScoreboard();
+}
+
+function clearRunners() {
+    baseOccupancy = [null, null, null];
+    runnerEntities.forEach((r, i) => resetRunner(i));
+}
+
 init();
+initRunners();

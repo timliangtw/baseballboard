@@ -413,6 +413,8 @@ body {
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
   top: 79.7%;
   left: 50%;
+  display: none;
+  /* Hidden by default, managed by JS */
 }
 
 .runner-dot.active {
@@ -779,4 +781,17 @@ body {
   box-shadow: 0 0 10px #ff5252;
   z-index: 10;
   transform: scale(1.05);
+}
+
+.fielder-dot {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #555;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  transition: background-color 0.5s;
 }

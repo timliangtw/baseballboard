@@ -35,7 +35,17 @@ const POSITIONS = {
     pitcher: { top: '50%', left: '50%' },
     outfieldLeft: { top: '15%', left: '20%' },
     outfieldRight: { top: '15%', left: '80%' },
-    infield: { top: '35%', left: '65%' }
+    infield: { top: '35%', left: '65%' },
+    // Defenses
+    P: { top: '50%', left: '50%' },
+    C: { top: '85%', left: '50%' },
+    B1: { top: '48%', left: '72%' }, // 1B
+    B2: { top: '28%', left: '60%' }, // 2B
+    B3: { top: '48%', left: '28%' }, // 3B
+    SS: { top: '28%', left: '40%' },
+    LF: { top: '15%', left: '20%' },
+    CF: { top: '10%', left: '50%' },
+    RF: { top: '15%', left: '80%' }
 };
 
 // --- 核心：21種組合表 (參考圖片) ---

@@ -1,0 +1,243 @@
+/* --- 基礎設定 --- */
+:root {
+  --bg-color: #2b2f3a;
+  --panel-bg: #20232b;
+  --accent-color: #f8b739;
+  --vis-color: #d32f2f;
+  --home-color: #1976d2;
+  --field-grass: #3c6e47;
+  --field-dirt: #8d6e63;
+  --line-color: rgba(255, 255, 255, 0.8);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg-color); color: #f5f5f5;
+  display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden;
+}
+
+.overlay-screen {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(30, 34, 45, 0.98);
+  z-index: 100;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transition: opacity 0.5s;
+}
+.overlay-screen.hidden { opacity: 0; pointer-events: none; }
+
+.title-logo { font-size: 3rem; font-weight: 900; color: var(--accent-color); margin-bottom: 30px; text-shadow: 0 0 20px rgba(248,183,57,0.5); letter-spacing: 2px; }
+
+.menu-btn {
+  width: 220px; padding: 15px; margin: 10px; border: 2px solid var(--accent-color);
+  background: transparent; color: var(--accent-color); font-size: 1.2rem; font-weight: bold;
+  cursor: pointer; border-radius: 50px; transition: all 0.2s;
+}
+.menu-btn:hover { background: var(--accent-color); color: #222; transform: scale(1.05); }
+.menu-btn.primary { background: var(--accent-color); color: #222; }
+
+/* 設定畫面 */
+.setup-container { width: 90%; max-width: 600px; background: #252a36; padding: 20px; border-radius: 16px; text-align: center; }
+.color-picker-row { display: flex; justify-content: center; gap: 20px; margin: 20px 0; }
+.color-option { width: 40px; height: 40px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; transition: transform 0.2s; }
+.color-option.selected { border-color: #fff; transform: scale(1.2); box-shadow: 0 0 10px rgba(255,255,255,0.5); }
+
+.initiative-area { display: flex; justify-content: space-around; align-items: center; margin: 20px 0; background: #1a1d26; padding: 15px; border-radius: 12px; }
+.player-setup-box { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.roll-num { font-size: 2rem; font-weight: bold; min-width: 60px; }
+
+/* 圖鑑與抽卡畫面 */
+.gallery-grid { 
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); 
+  gap: 10px; width: 90%; max-width: 800px; max-height: 70vh; overflow-y: auto; padding: 10px;
+}
+.card-preview {
+  background: #2c303a; border: 1px solid #444; border-radius: 8px; padding: 10px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.card-preview.atk { border-top: 4px solid var(--accent-color); }
+.card-preview.def { border-top: 4px solid #448aff; }
+
+/* 遊戲主體 */
+.game-wrapper {
+  width: 100%; max-width: 1100px; height: 100vh; max-height: 800px;
+  background: var(--panel-bg); border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+  padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  filter: blur(0); transition: filter 0.5s;
+}
+.game-wrapper.blur { filter: blur(10px); }
+
+/* 頂部計分板 */
+.scoreboard {
+  display: grid; grid-template-columns: 1.5fr 3fr 1.2fr; gap: 10px; padding: 10px 15px;
+  background: #000; border-radius: 10px; align-items: center; border: 2px solid #333;
+}
+.team-info { display: flex; align-items: center; gap: 10px; }
+.team-logo { 
+  width: 40px; height: 40px; border-radius: 50%; background: #444; 
+  display: grid; place-items: center; font-weight: bold; font-size: 0.9rem;
+}
+.vis-logo { background: var(--vis-color); color: white; }
+.home-logo { background: var(--home-color); color: white; }
+
+.score-grid { display: grid; grid-template-columns: 2.5em repeat(9, 1fr) 2em; gap: 2px; font-family: monospace; font-weight: bold; }
+.score-grid .cell { background: #222; color: #555; text-align: center; padding: 4px 0; font-size: 0.85rem; border-radius: 2px; }
+.score-grid .header { color: #888; font-size: 0.6rem; background: transparent; }
+.score-grid .total { color: var(--accent-color); font-size: 1rem; }
+.score-grid .active-score { color: #fff; text-shadow: 0 0 5px rgba(255,255,255,0.8); }
+.score-grid .team-name { text-align: left; padding-left: 5px; color: #fff; }
+
+.status-panel { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-family: monospace; }
+.bso-row { display: flex; gap: 6px; align-items: center; font-size: 0.75rem; color: #aaa; }
+.lights { display: flex; gap: 3px; }
+.light { width: 8px; height: 8px; border-radius: 50%; background: #333; border: 1px solid #444; }
+.light.on-green { background: #00e676; box-shadow: 0 0 5px #00e676; }
+.light.on-yellow { background: #ffeb3b; box-shadow: 0 0 5px #ffeb3b; }
+.light.on-red { background: #ff1744; box-shadow: 0 0 5px #ff1744; }
+
+/* 主區域 */
+.main-area { flex: 1; display: grid; grid-template-columns: 1.6fr 1.4fr; gap: 12px; min-height: 0; }
+
+/* 球場 */
+.field-container {
+  background: #181b23; border-radius: 16px; padding: 10px; position: relative;
+  display: flex; justify-content: center; align-items: center; overflow: hidden;
+}
+.field {
+  position: relative; width: 100%; max-width: 450px; aspect-ratio: 1/1;
+  background: radial-gradient(circle at 50% 50%, var(--field-dirt) 22%, transparent 23%), linear-gradient(0deg, var(--field-grass) 50%, #2e5a36 50%);
+  background-size: 100% 100%, 100% 30px;
+  border-radius: 12px; border: 4px solid #1a2e1e;
+}
+.infield-diamond {
+  position: absolute; top: 50%; left: 50%; width: 42%; height: 42%;
+  border: 2px solid var(--line-color); transform: translate(-50%, -50%) rotate(-45deg);
+  box-sizing: border-box; z-index: 5;
+}
+.base { position: absolute; width: 20px; height: 20px; background: #fff; transform: translate(0, 0); box-shadow: 1px 1px 3px rgba(0,0,0,0.3); }
+.base.second { top: -10px; left: -10px; } 
+.base.first  { top: -10px; right: -10px; }
+.base.home   { bottom: -10px; right: -10px; border-radius: 2px 2px 10px 2px; }
+.base.third  { bottom: -10px; left: -10px; }
+.mound { 
+  position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; 
+  background: var(--field-dirt); border-radius: 50%; transform: translate(-50%, -50%); border: 1px solid rgba(255,255,255,0.2); z-index: 4;
+}
+.runner-dot {
+  position: absolute; width: 22px; height: 22px; 
+  background: var(--vis-color); border: 2px solid #fff; border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0); transition: top 0.6s linear, left 0.6s linear;
+  z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.5); top: 50%; left: 50%;
+}
+.runner-dot.active { transform: translate(-50%, -50%) scale(1); }
+.runner-dot.home-team { background: var(--home-color); }
+
+.baseball {
+  position: absolute; width: 10px; height: 10px; background: #fff; border-radius: 50%;
+  box-shadow: 0 0 4px rgba(0,0,0,0.5); z-index: 20; top: 50%; left: 50%; opacity: 0; pointer-events: none;
+}
+.baseball.animate { opacity: 1; transition: top 0.4s ease-out, left 0.4s ease-out; }
+
+/* 互動區 */
+.interaction-panel { display: flex; flex-direction: column; gap: 10px; }
+.battle-slots {
+  display: flex; justify-content: center; align-items: center; gap: 10px;
+  background: #1a1a1a; padding: 10px; border-radius: 12px; min-height: 110px;
+}
+.slot-box {
+  width: 90px; height: 100px; border: 2px dashed #444; border-radius: 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transition: all 0.3s; position: relative; overflow: hidden;
+}
+.slot-box.filled { border-style: solid; background: #2a2a2a; border-color: #666; }
+.slot-box.atk-filled { border-color: var(--accent-color); background: rgba(248, 183, 57, 0.1); }
+.slot-box.def-filled { border-color: #448aff; background: rgba(68, 138, 255, 0.1); }
+.slot-icon { font-size: 2.5rem; margin-bottom: 5px; }
+.slot-label { font-size: 0.7rem; color: #888; text-transform: uppercase; }
+.slot-name { font-size: 0.8rem; font-weight: bold; text-align: center; line-height: 1.1; }
+
+.decks-container { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1; min-height: 200px;}
+.deck-column { display: flex; flex-direction: column; gap: 6px; }
+.deck-header { font-size: 0.8rem; text-align: center; padding-bottom: 4px; border-bottom: 2px solid #333; margin-bottom: 4px; }
+
+.card {
+  background: #2c303a; border-radius: 8px; padding: 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; border: 1px solid transparent;
+  transition: transform 0.1s, background 0.2s; position: relative;
+}
+.card:hover { background: #353a45; transform: translateY(-2px); }
+.card.selected { border-color: #fff; background: #444; }
+.card.disabled { opacity: 0.3; pointer-events: none; filter: grayscale(1); }
+.card.used::after { content: '已使用'; position: absolute; inset:0; background:rgba(0,0,0,0.7); display:grid; place-items:center; color:#fff; font-size:0.8rem; border-radius:8px;}
+.card-icon { font-size: 1.8rem; width: 35px; text-align: center; }
+.card-info { flex: 1; }
+.card-title { font-size: 0.85rem; font-weight: bold; color: #eee; }
+.card-effect { font-size: 0.6rem; color: #aaa; }
+
+.controls {
+  background: #252a36; padding: 10px; border-radius: 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.dice-display { display: flex; gap: 15px; margin-bottom: 5px; }
+.die {
+  width: 48px; height: 48px; background: #eee; border-radius: 8px; color: #222;
+  font-size: 1.6rem; font-weight: 800; display: grid; place-items: center; box-shadow: 0 4px 0 #bbb;
+}
+.die.rolling { animation: shake 0.2s infinite; background: #ddd; }
+.status-text { text-align: center; height: 2.5em; display: flex; flex-direction: column; justify-content: center; }
+.main-status { font-size: 1.1rem; font-weight: bold; color: #fff; }
+.sub-status { font-size: 0.8rem; color: var(--accent-color); }
+.play-btn {
+  width: 100%; padding: 12px; border-radius: 50px; border: none;
+  background: linear-gradient(135deg, var(--accent-color), #e6a320);
+  font-size: 1.1rem; font-weight: bold; color: #222; cursor: pointer;
+  box-shadow: 0 4px 10px rgba(248, 183, 57, 0.4); transition: transform 0.1s;
+}
+.play-btn:active { transform: scale(0.98); }
+.play-btn:disabled { background: #555; color: #888; box-shadow: none; }
+
+@keyframes shake { 0% {transform:rotate(5deg);} 50% {transform:rotate(-5deg);} 100% {transform:rotate(5deg);} }
+
+/* --- 跑燈機台樣式 (新版 Grid) --- */
+#roll-overlay {
+  background: rgba(10, 12, 16, 0.95);
+  z-index: 200;
+}
+.machine-container {
+  width: 95%; max-width: 600px;
+  background: #151515; border: 4px solid #555; border-radius: 12px;
+  padding: 15px; text-align: center;
+  box-shadow: 0 0 30px rgba(0,0,0,0.8);
+  position: relative;
+}
+.machine-title { font-size: 1.5rem; color: #f8b739; margin-bottom: 15px; letter-spacing: 2px; text-transform: uppercase; font-weight: 900; }
+
+.machine-dice-area {
+  display: flex; justify-content: center; gap: 20px; margin-bottom: 15px;
+}
+.machine-die {
+  width: 50px; height: 50px; background: #fff; border-radius: 8px;
+  color: #000; font-size: 1.5rem; font-weight: bold;
+  display: flex; justify-content: center; align-items: center;
+  box-shadow: 0 4px 0 #999;
+}
+.machine-die.rolling { animation: shake 0.1s infinite; background: #ddd; }
+
+/* 3 Column Grid for 21 combinations */
+.result-grid-v2 {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  background: #222; padding: 10px; border-radius: 8px;
+}
+
+.res-cell {
+  background: #333; border: 1px solid #444; border-radius: 4px;
+  padding: 6px 2px; color: #aaa; font-family: monospace;
+  display: flex; align-items: center; justify-content: space-between;
+  transition: all 0.1s; font-size: 0.8rem;
+}
+.res-cell .d-pair { font-weight: bold; color: #fff; margin-left: 5px; }
+.res-cell .d-out { font-size: 0.75rem; margin-right: 5px; text-align: right; }
+
+.res-cell.active {
+  background: #d32f2f; border-color: #ff5252; color: #fff;
+  box-shadow: 0 0 10px #ff5252; z-index: 10; transform: scale(1.05);
+}

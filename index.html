@@ -48,6 +48,8 @@ const TEAMS = [
 
 // Strike zone trapezoid
 const SZ = { topY:355, topHW:44, botY:455, botHW:66, cx:512 };
+const PITCH_START = { x:512, y:292 }; // pitcher rubber visual position
+const PITCH_CONTROL = 32;             // max random offset (px)
 
 // ═══════════════════════════════════════
 //  STATE
@@ -63,6 +65,16 @@ const gs = {
   score:{ away:0, home:0 },
   inningScores:{ away:[], home:[] },
   batX: W/2, batY: H/2,
+  // Phase 2
+  gamePhase: 'PITCH_AIM', // PITCH_AIM | BALL_FLIGHT | BATTING_WINDOW | SHOW_RESULT
+  pitch: {
+    aimX: SZ.cx, aimY: (SZ.topY+SZ.botY)/2,  // live aim cursor
+    targetX: SZ.cx, targetY: (SZ.topY+SZ.botY)/2, // locked after click
+    actualX: SZ.cx, actualY: (SZ.topY+SZ.botY)/2, // target + random offset
+    t: 0,      // flight progress 0→1
+    speed: 0.020,
+  },
+  result: { text:'', color:'#FFFFFF', timer:0, maxTimer:0 },
 };
 
 // ═══════════════════════════════════════
@@ -97,8 +109,15 @@ function onMove(cx, cy) {
   const p = toL(cx, cy);
   mouse.x = p.x; mouse.y = p.y;
   if (phase === 'GAME') {
-    gs.batX = clamp(p.x, 40, W - 40);
-    gs.batY = clamp(p.y, 64, H - 40);
+    if (gs.gamePhase === 'PITCH_AIM') {
+      // Pitcher aims anywhere below scoreboard
+      gs.pitch.aimX = clamp(p.x, 60, W - 60);
+      gs.pitch.aimY = clamp(p.y, 70, H - 20);
+    } else {
+      // Batter cursor active during flight and batting window
+      gs.batX = clamp(p.x, 40, W - 220);
+      gs.batY = clamp(p.y, 70, H - 40);
+    }
   }
 }
 function onClick(cx, cy) { handleClick(toL(cx, cy)); }
@@ -132,6 +151,13 @@ function handleClick({ x, y }) {
     const i = teamCardAt(x, y);
     if (i !== -1 && i !== cfg.awayIdx) { cfg.homeIdx = i; startGame(); }
   }
+  else if (phase === 'GAME') {
+    if (gs.gamePhase === 'PITCH_AIM') {
+      setPitch(gs.pitch.aimX, gs.pitch.aimY);
+    } else if (gs.gamePhase === 'BATTING_WINDOW') {
+      doSwing();
+    }
+  }
 }
 
 function inRect(x, y, rx, ry, rw, rh) {
@@ -157,6 +183,10 @@ function startGame() {
   gs.inningScores.away = Array(cfg.innings).fill(null);
   gs.inningScores.home = Array(cfg.innings).fill(null);
   gs.batX = W/2; gs.batY = H/2;
+  gs.gamePhase = 'PITCH_AIM';
+  gs.pitch.aimX = SZ.cx;
+  gs.pitch.aimY = (SZ.topY + SZ.botY) / 2;
+  gs.pitch.t = 0;
   phase = 'GAME';
 }
 
@@ -496,6 +526,219 @@ function drawBatterCursor() {
 }
 
 // ═══════════════════════════════════════
+//  PHASE 2: GAME LOGIC
+// ═══════════════════════════════════════
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function isInStrikeZone(x, y) {
+  if (y < SZ.topY || y > SZ.botY) return false;
+  const frac = (y - SZ.topY) / (SZ.botY - SZ.topY);
+  const hw = SZ.topHW + (SZ.botHW - SZ.topHW) * frac;
+  return Math.abs(x - SZ.cx) <= hw;
+}
+
+function setPitch(tx, ty) {
+  gs.pitch.targetX = tx;
+  gs.pitch.targetY = ty;
+  // Random offset controlled by PITCH_CONTROL
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = Math.random() * PITCH_CONTROL;
+  gs.pitch.actualX = tx + Math.cos(angle) * dist;
+  gs.pitch.actualY = ty + Math.sin(angle) * dist;
+  gs.pitch.t = 0;
+  gs.gamePhase = 'BALL_FLIGHT';
+}
+
+function doSwing() {
+  // Snapshot batter position - Phase 3 computes full collision
+  // Phase 2: mark swing happened, Phase 3 determines hit/miss quality
+  gs.gamePhase = 'SHOW_RESULT';
+  const dist = Math.hypot(gs.batX - gs.pitch.actualX, gs.batY - gs.pitch.actualY);
+  if (dist < 30) {
+    showResult('HIT!', '#FFFF44', 90);
+  } else if (dist < 55) {
+    showResult('FOUL!', '#FF8844', 80);
+    gs.strikes = Math.min(2, gs.strikes + 1); // foul never 3rd strike
+  } else {
+    gs.strikes++;
+    if (gs.strikes >= 3) {
+      gs.outs++; gs.balls = 0; gs.strikes = 0;
+      showResult('STRIKEOUT!', '#FF4444', 110);
+    } else {
+      showResult('SWING  MISS!', '#FF6644', 80);
+    }
+  }
+}
+
+function resolveNoPitch() {
+  const inZone = isInStrikeZone(gs.pitch.actualX, gs.pitch.actualY);
+  if (inZone) {
+    gs.strikes++;
+    if (gs.strikes >= 3) {
+      gs.outs++; gs.balls = 0; gs.strikes = 0;
+      showResult('STRIKEOUT!', '#FF4444', 110);
+    } else {
+      showResult('STRIKE!', '#FF8844', 80);
+    }
+  } else {
+    gs.balls++;
+    if (gs.balls >= 4) {
+      gs.balls = 0; gs.strikes = 0;
+      showResult('WALK!', '#44AAFF', 100);
+    } else {
+      showResult('BALL!', '#44FF44', 80);
+    }
+  }
+}
+
+function showResult(text, color, frames) {
+  gs.result.text = text;
+  gs.result.color = color;
+  gs.result.timer = frames;
+  gs.result.maxTimer = frames;
+  gs.gamePhase = 'SHOW_RESULT';
+}
+
+function nextPitch() {
+  gs.pitch.t = 0;
+  gs.pitch.aimX = SZ.cx;
+  gs.pitch.aimY = (SZ.topY + SZ.botY) / 2;
+  gs.gamePhase = 'PITCH_AIM';
+}
+
+function updateGame() {
+  const gp = gs.gamePhase;
+  if (gp === 'BALL_FLIGHT' || gp === 'BATTING_WINDOW') {
+    gs.pitch.t = Math.min(1.0, gs.pitch.t + gs.pitch.speed);
+    if (gs.pitch.t >= 0.72 && gp === 'BALL_FLIGHT') gs.gamePhase = 'BATTING_WINDOW';
+    if (gs.pitch.t >= 1.0) resolveNoPitch();
+  } else if (gp === 'SHOW_RESULT') {
+    gs.result.timer--;
+    if (gs.result.timer <= 0) nextPitch();
+  }
+}
+
+// ═══════════════════════════════════════
+//  PHASE 2: DRAW — AIM CURSOR
+// ═══════════════════════════════════════
+function drawAimCursor() {
+  if (gs.gamePhase !== 'PITCH_AIM') return;
+  const { aimX: ax, aimY: ay } = gs.pitch;
+  const inZone = isInStrikeZone(ax, ay);
+  const col = inZone ? '#44FF44' : '#FF8844';
+
+  // Rotating diamond crosshair
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.rotate(Math.PI / 4 + tick * 0.03);
+  srect(-10, -10, 20, 20, col, 2);
+  ctx.restore();
+
+  // Short tick marks
+  ctx.strokeStyle = col + 'AA';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([3, 4]);
+  [[ax-22,ay,ax-13,ay],[ax+13,ay,ax+22,ay],[ax,ay-22,ax,ay-13],[ax,ay+13,ax,ay+22]].forEach(([x1,y1,x2,y2])=>{
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // Zone label
+  txt(inZone ? 'IN  ZONE' : 'BALL', ax, ay - 26, 5, col);
+
+  // Bottom instruction, blinking
+  if ((tick >> 4) % 2 === 0) {
+    txt('CLICK  TO  PITCH', W/2, H - 18, 7, '#FFFF44');
+  }
+}
+
+// ═══════════════════════════════════════
+//  PHASE 2: DRAW — BALL FLIGHT
+// ═══════════════════════════════════════
+function drawBallFlight() {
+  const gp = gs.gamePhase;
+  if (gp === 'PITCH_AIM') return;
+
+  const { t, actualX, actualY, targetX, targetY } = gs.pitch;
+  const { x: sx, y: sy } = PITCH_START;
+
+  // Ghost of aimed target
+  ctx.beginPath();
+  ctx.arc(targetX, targetY, 9, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,100,0.28)';
+  ctx.lineWidth = 1; ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
+
+  if (gp === 'SHOW_RESULT') {
+    // Ball frozen at landing spot
+    drawBall(actualX, actualY, 13);
+    // Landing dot: green = strike, red = ball
+    const inZ = isInStrikeZone(actualX, actualY);
+    ctx.beginPath(); ctx.arc(actualX, actualY + 14, 5, 0, Math.PI*2);
+    ctx.fillStyle = inZ ? '#44FF44' : '#FF4444'; ctx.fill();
+    return;
+  }
+
+  // Parabolic arc: ball rises slightly then drops
+  const bx = lerp(sx, actualX, t);
+  const by = lerp(sy, actualY, t) - 22 * t * (1 - t);
+  const radius = lerp(3, 13, t * t);
+
+  // Trail
+  for (let i = 5; i >= 1; i--) {
+    const tt = Math.max(0, t - i * 0.038);
+    const tx2 = lerp(sx, actualX, tt);
+    const ty2 = lerp(sy, actualY, tt) - 22 * tt * (1 - tt);
+    const tr = lerp(2, 10, tt * tt);
+    ctx.beginPath(); ctx.arc(tx2, ty2, tr, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,200,${(6-i) * 0.028})`;
+    ctx.fill();
+  }
+
+  drawBall(bx, by, radius);
+}
+
+// ═══════════════════════════════════════
+//  PHASE 2: DRAW — SWING PROMPT
+// ═══════════════════════════════════════
+function drawSwingPrompt() {
+  if (gs.gamePhase !== 'BATTING_WINDOW') return;
+  if ((tick >> 3) % 2 === 0) {
+    // Flashing border on canvas edge
+    ctx.strokeStyle = '#FF4444AA';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 65, W - 6, H - 68);
+    txt('SWING  NOW!', W/2, 100, 12, '#FF4444');
+  }
+}
+
+// ═══════════════════════════════════════
+//  PHASE 2: DRAW — RESULT OVERLAY
+// ═══════════════════════════════════════
+function drawResult() {
+  if (gs.gamePhase !== 'SHOW_RESULT') return;
+  const { text, color, timer, maxTimer } = gs.result;
+  const alpha = timer <= 18 ? timer / 18 : 1.0;
+  ctx.globalAlpha = alpha;
+
+  frect(0, 62, W, H - 62, 'rgba(0,0,0,0.42)');
+
+  // Box
+  const bw = 420, bh = 84;
+  frect(W/2-bw/2, H/2-bh/2, bw, bh, '#08081a');
+  srect(W/2-bw/2, H/2-bh/2, bw, bh, color, 3);
+
+  // Text with pixel outline
+  ctx.font = `30px "Press Start 2P", monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 5;
+  ctx.strokeText(text, W/2, H/2);
+  ctx.fillStyle = color;
+  ctx.fillText(text, W/2, H/2);
+
+  ctx.globalAlpha = 1.0;
+}
+
+// ═══════════════════════════════════════
 //  GAME: INFO PANEL
 // ═══════════════════════════════════════
 function drawInfoPanel() {
@@ -511,17 +754,25 @@ function drawInfoPanel() {
   txt('PITCH', px+94, py+52, 6, '#AAAAAA');
   txt(pitching.name.slice(0,10), px+94, py+68, 5, pitching.primary==='#FFFFFF'?'#DDDDDD':pitching.primary);
 
-  frect(px+8, py+84, 172, 1, '#222233');
+  frect(px+8, py+84, 172, 1, '#334455');
 
-  txt('─ PHASE  1 ─', px+94, py+100, 6, '#FFFF44');
-  txt('FIELD  CHECK', px+94, py+120, 5, '#666688');
+  const gp = gs.gamePhase;
+  const phaseColor = gp==='PITCH_AIM'?'#44FF44': gp==='BATTING_WINDOW'?'#FF4444':'#FFFF44';
+  txt(gp.replace('_',' '), px+94, py+100, 5, phaseColor);
 
-  frect(px+8, py+134, 172, 1, '#222233');
-
-  txt('MOVE:', px+94, py+152, 5, '#888899');
-  txt('MOUSE / TOUCH', px+94, py+168, 5, '#666688');
-  txt('SWING: CLICK', px+94, py+186, 5, '#666688');
-  txt('(PHASE 2→)', px+94, py+202, 5, '#334455');
+  if (gp === 'PITCH_AIM') {
+    txt('PITCHER AIMS', px+94, py+120, 5, '#888899');
+    txt('CLICK = PITCH', px+94, py+136, 5, '#44FF44');
+  } else if (gp === 'BALL_FLIGHT') {
+    txt('BALL  IN  FLIGHT', px+94, py+120, 5, '#888899');
+    txt('MOVE  CURSOR', px+94, py+136, 5, '#AAAAAA');
+  } else if (gp === 'BATTING_WINDOW') {
+    txt('BATTING WINDOW!', px+94, py+120, 5, '#FF4444');
+    txt('CLICK = SWING!', px+94, py+136, 5, '#FF4444');
+  } else {
+    txt('RESULT', px+94, py+120, 5, '#888899');
+    txt('WAIT...', px+94, py+136, 5, '#666688');
+  }
 }
 
 // ═══════════════════════════════════════
@@ -535,10 +786,15 @@ function loop() {
   else if (phase === 'SETUP_AWAY')   drawSetupTeam(false);
   else if (phase === 'SETUP_HOME')   drawSetupTeam(true);
   else if (phase === 'GAME') {
+    updateGame();
     drawField();
+    drawBallFlight();
+    drawAimCursor();
+    drawSwingPrompt();
+    drawBatterCursor();
     drawScoreboard();
     drawBaseDiamond();
-    drawBatterCursor();
+    drawResult();
     drawInfoPanel();
   }
 

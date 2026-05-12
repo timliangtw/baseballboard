@@ -78,6 +78,9 @@ const gs = {
   swingAnim: { active:false, t:0, hitQuality:0 },
   lastResultType: '', // HR | 2B | 1B | FOUL | OUT | STRIKE | BALL | WALK
   halfStartScore: { away:0, home:0 },
+  // Phase 4
+  halfChange: { line1:'', line2:'', line3:'', col:'#FFFFFF', timer:0, maxTimer:0, gameOver:false },
+  runFlash:   { runs:0, timer:0, side:'away' },
 };
 
 // ═══════════════════════════════════════
@@ -200,6 +203,8 @@ function startGame() {
   gs.swingAnim = { active:false, t:0, hitQuality:0 };
   gs.lastResultType = '';
   gs.halfStartScore = { away:0, home:0 };
+  gs.halfChange = { line1:'', line2:'', line3:'', col:'#FFFFFF', timer:0, maxTimer:0, gameOver:false };
+  gs.runFlash   = { runs:0, timer:0, side:'away' };
   phase = 'GAME';
 }
 
@@ -843,7 +848,7 @@ function showResult(text, color, frames, subtext='') {
 
 function nextPitch() {
   gs.swingAnim = { active:false, t:0, hitQuality:0 };
-  if (gs.outs >= 3) { advanceHalf(); return; }
+  if (gs.outs >= 3) { startHalfChange(); return; }
   gs.pitch.t = 0;
   gs.pitch.aimX = SZ.cx;
   gs.pitch.aimY = (SZ.topY + SZ.botY) / 2;
@@ -859,8 +864,9 @@ function walkBatter() {
   }
   gs.bases[0] = true;
   if (runs > 0) {
-    if (gs.half === 'TOP') gs.score.away += runs;
-    else gs.score.home += runs;
+    const side = gs.half === 'TOP' ? 'away' : 'home';
+    if (side === 'away') gs.score.away += runs; else gs.score.home += runs;
+    gs.runFlash = { runs, timer:90, side };
   }
 }
 
@@ -878,21 +884,54 @@ function advanceRunners(bases) {
   else next[bDest] = true;
   gs.bases = next;
   if (runs > 0) {
-    if (gs.half === 'TOP') gs.score.away += runs;
-    else gs.score.home += runs;
+    const side = gs.half === 'TOP' ? 'away' : 'home';
+    if (side === 'away') gs.score.away += runs; else gs.score.home += runs;
+    gs.runFlash = { runs, timer:90, side };
   }
 }
 
-function advanceHalf() {
+function startHalfChange() {
+  const ordinals = ['','1ST','2ND','3RD','4TH','5TH','6TH','7TH','8TH','9TH'];
   const idx = gs.inning - 1;
+  // Record this half's run total before switching
   if (gs.half === 'TOP') {
     gs.inningScores.away[idx] = gs.score.away - gs.halfStartScore.away;
+  } else {
+    gs.inningScores.home[idx] = gs.score.home - gs.halfStartScore.home;
+  }
+  const isLastHalf = gs.half === 'BOT' && gs.inning >= cfg.innings;
+  const isTied     = gs.score.away === gs.score.home;
+  if (isLastHalf && !isTied) {
+    // Game over — show final score
+    gs.halfChange = {
+      line1: 'GAME  SET!',
+      line2: TEAMS[cfg.awayIdx].name.slice(0,9) + '  ' + pad2(gs.score.away),
+      line3: TEAMS[cfg.homeIdx].name.slice(0,9) + '  ' + pad2(gs.score.home),
+      col: '#FFD700', timer: 180, maxTimer: 180, gameOver: true
+    };
+  } else {
+    const nextHalf   = gs.half === 'TOP' ? 'BOT' : 'TOP';
+    const nextInning = gs.half === 'BOT' ? gs.inning + 1 : gs.inning;
+    const batting    = nextHalf === 'TOP' ? TEAMS[cfg.awayIdx] : TEAMS[cfg.homeIdx];
+    const isExtra    = nextInning > cfg.innings;
+    gs.halfChange = {
+      line1: isExtra ? 'EXTRA  INNING!' : 'SIDE  RETIRED',
+      line2: (nextHalf==='TOP' ? '▲  TOP' : '▼  BOT') + '  ' + (ordinals[nextInning]||nextInning+'TH') + '  INN',
+      line3: batting.name.slice(0,10) + '  TO  BAT',
+      col: nextHalf === 'TOP' ? '#FF8844' : '#44AAFF',
+      timer: 160, maxTimer: 160, gameOver: false
+    };
+  }
+  gs.gamePhase = 'HALF_CHANGE';
+}
+
+function finishHalfChange() {
+  if (gs.halfChange.gameOver) { phase = 'GAME_OVER'; return; }
+  if (gs.half === 'TOP') {
     gs.half = 'BOT';
     gs.halfStartScore = { away: gs.score.away, home: gs.score.home };
   } else {
-    gs.inningScores.home[idx] = gs.score.home - gs.halfStartScore.home;
     gs.inning++;
-    if (gs.inning > cfg.innings) { phase = 'GAME_OVER'; return; }
     gs.half = 'TOP';
     gs.halfStartScore = { away: gs.score.away, home: gs.score.home };
   }
@@ -901,6 +940,7 @@ function advanceHalf() {
   gs.pitch.t = 0;
   gs.pitch.aimX = SZ.cx;
   gs.pitch.aimY = (SZ.topY + SZ.botY) / 2;
+  gs.swingAnim = { active:false, t:0, hitQuality:0 };
   gs.gamePhase = 'PITCH_AIM';
 }
 
@@ -913,11 +953,15 @@ function updateGame() {
   } else if (gp === 'SHOW_RESULT') {
     gs.result.timer--;
     if (gs.result.timer <= 0) nextPitch();
+  } else if (gp === 'HALF_CHANGE') {
+    gs.halfChange.timer--;
+    if (gs.halfChange.timer <= 0) finishHalfChange();
   }
   if (gs.swingAnim.active) {
     gs.swingAnim.t = Math.min(1.0, gs.swingAnim.t + 0.065);
     if (gs.swingAnim.t >= 1.0) gs.swingAnim.active = false;
   }
+  if (gs.runFlash.timer > 0) gs.runFlash.timer--;
 }
 
 // ═══════════════════════════════════════
@@ -1124,6 +1168,81 @@ function drawInfoPanel() {
 }
 
 // ═══════════════════════════════════════
+//  PHASE 4: FIELDER SILHOUETTES
+// ═══════════════════════════════════════
+function drawFielders() {
+  const fielding = gs.half==='TOP' ? TEAMS[cfg.homeIdx] : TEAMS[cfg.awayIdx];
+  const fc = fielding.primary === '#FFFFFF' ? '#CCCCCC' : fielding.primary;
+  // Outfield (LF, CF, RF) — small, distant
+  [[208, 250], [512, 226], [816, 250]].forEach(([fx, fy]) => {
+    ctx.beginPath(); ctx.arc(fx, fy, 4, 0, Math.PI*2);
+    ctx.fillStyle = fc + '99'; ctx.fill();
+    ctx.strokeStyle = '#FFFFFF33'; ctx.lineWidth = 1; ctx.stroke();
+  });
+  // Infield (SS, 2B) — slightly larger
+  [[434, 370], [590, 370]].forEach(([fx, fy]) => {
+    ctx.beginPath(); ctx.arc(fx, fy, 5, 0, Math.PI*2);
+    ctx.fillStyle = fc + 'AA'; ctx.fill();
+    ctx.strokeStyle = '#FFFFFF44'; ctx.lineWidth = 1; ctx.stroke();
+  });
+}
+
+// ═══════════════════════════════════════
+//  PHASE 4: HALF-CHANGE TRANSITION
+// ═══════════════════════════════════════
+function drawHalfChange() {
+  if (gs.gamePhase !== 'HALF_CHANGE') return;
+  const { line1, line2, line3, col, timer, maxTimer } = gs.halfChange;
+  const alpha = timer < 22 ? timer / 22 : 1.0;
+  ctx.globalAlpha = alpha;
+
+  // Dim the field
+  frect(0, 62, W, H-62, 'rgba(0,0,0,0.72)');
+
+  // Card
+  const bw = 520, bh = 168, bx = W/2-bw/2, by = H/2-bh/2;
+  frect(bx, by, bw, bh, '#06061a');
+  srect(bx, by, bw, bh, col, 3);
+  // Accent stripe at top
+  frect(bx+3, by+3, bw-6, 6, col + '55');
+
+  // Title
+  txt(line1, W/2, by+36, 14, col);
+  frect(bx+24, by+58, bw-48, 1, col + '44');
+
+  // Inning label + batting team
+  txt(line2, W/2, by+86, 9, '#FFFFFF');
+  txt(line3, W/2, by+116, 8, '#AAAAAA');
+
+  // Progress bar (counts DOWN to 0 as timer goes to 0)
+  const prog = 1 - timer / maxTimer;
+  frect(bx+10, by+bh-14, bw-20, 5, col + '22');
+  frect(bx+10, by+bh-14, (bw-20)*prog, 5, col);
+
+  ctx.globalAlpha = 1.0;
+}
+
+// ═══════════════════════════════════════
+//  PHASE 4: RUN SCORE FLASH
+// ═══════════════════════════════════════
+function drawRunFlash() {
+  if (gs.runFlash.timer <= 0) return;
+  const { runs, timer, side } = gs.runFlash;
+  const alpha = timer < 24 ? timer / 24 : 1.0;
+  const rx = side === 'away' ? 88 : W - 88;
+  const label = runs === 1 ? '+1  RUN!' : '+' + runs + '  RUNS!';
+  ctx.globalAlpha = alpha;
+  frect(rx-58, 50, 116, 16, 'rgba(0,0,0,0.7)');
+  ctx.font = `9px "Press Start 2P", monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+  ctx.strokeText(label, rx, 58);
+  ctx.fillStyle = '#FFD700';
+  ctx.fillText(label, rx, 58);
+  ctx.globalAlpha = 1.0;
+}
+
+// ═══════════════════════════════════════
 //  GAME OVER SCREEN
 // ═══════════════════════════════════════
 function drawGameOver() {
@@ -1201,7 +1320,8 @@ function loop() {
     const pitching = gs.half==='TOP' ? TEAMS[cfg.homeIdx]  : TEAMS[cfg.awayIdx];
     const batting  = gs.half==='TOP' ? TEAMS[cfg.awayIdx]  : TEAMS[cfg.homeIdx];
     drawField();
-    drawPitcher(512, 282, pitching);    // on mound, behind ball
+    drawFielders();
+    drawPitcher(512, 282, pitching);
     drawBallFlight();
     drawBatter(512, 472, batting, !gs.swingAnim.active);
     drawSwingAnim();
@@ -1209,9 +1329,11 @@ function loop() {
     drawSwingPrompt();
     drawBatterCursor();
     drawScoreboard();
+    drawRunFlash();
     drawBaseDiamond();
     drawResult();
     drawInfoPanel();
+    drawHalfChange();
   }
   else if (phase === 'GAME_OVER') { drawGameOver(); drawMouseCursor(); }
 

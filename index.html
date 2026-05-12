@@ -45,9 +45,9 @@ const TEAMS = [
   { id:'CAN', name:'CANADA',         flag:'🇨🇦', primary:'#CC0000', secondary:'#FFFFFF', accent:'#000000' },
 ];
 
-// Strike zone — sits at screen center (Power Pros style: pitcher above, batter below)
-const SZ = { topY:234, topHW:36, botY:350, botHW:44, cx:512 };
-const PITCH_START = { x:512, y:218 }; // pitcher rubber — high & far
+// Strike zone — near home plate (bottom of field), pitcher is above it on screen
+const SZ = { topY:396, topHW:34, botY:460, botHW:40, cx:512 };
+const PITCH_START = { x:512, y:374 }; // pitcher rubber — correct mound position
 const PITCH_CONTROL = 80;             // max random offset (px); center≈75% strike, edge≈55%
 
 // Pitch types — affect speed, control radius, and ball movement
@@ -70,7 +70,7 @@ const gs = {
   bases:[false,false,false],
   score:{ away:0, home:0 },
   inningScores:{ away:[], home:[] },
-  batX: W/2, batY: H/2,
+  batX: W/2, batY: 428,
   // Phase 2
   gamePhase: 'PITCH_AIM', // PITCH_AIM | BALL_FLIGHT | BATTING_WINDOW | SHOW_RESULT
   pitch: {
@@ -137,8 +137,8 @@ function onMove(cx, cy) {
       gs.pitch.aimY = clamp(p.y, 70, H - 20);
     } else {
       // Batter cursor active during flight and batting window
-      gs.batX = clamp(p.x, 40, W - 40);
-      gs.batY = clamp(p.y, 70, H - 40);
+      gs.batX = clamp(p.x, 150, 800);
+      gs.batY = clamp(p.y, 360, 492);
     }
   }
 }
@@ -203,9 +203,8 @@ function teamCardAt(x, y) {
 }
 
 function pitchTypeButtonAt(x, y) {
-  const bw = 80, bh = 28, gap = 8;
-  const totalW = PITCH_TYPES.length * (bw + gap) - gap;
-  const startX = W/2 - totalW / 2;
+  const bw = 80, bh = 28, gap = 6;
+  const startX = 12;
   const by = H - 54;
   for (let i = 0; i < PITCH_TYPES.length; i++) {
     if (inRect(x, y, startX + i * (bw + gap), by, bw, bh)) return i;
@@ -220,7 +219,7 @@ function startGame() {
   gs.score.away = 0; gs.score.home = 0;
   gs.inningScores.away = Array(cfg.innings).fill(null);
   gs.inningScores.home = Array(cfg.innings).fill(null);
-  gs.batX = W/2; gs.batY = H/2;
+  gs.batX = W/2; gs.batY = 428;
   gs.gamePhase = 'PITCH_AIM';
   gs.pitch.aimX = SZ.cx;
   gs.pitch.aimY = (SZ.topY + SZ.botY) / 2;
@@ -403,7 +402,7 @@ function drawSetupTeam(isHome) {
 //    Batter sprite at (512,472) — feet just above plate
 //
 function drawField() {
-  const HY = 185;  // horizon y — Power Pros: field compressed, more sky/stadium
+  const HY = 185;
 
   // ── 1. SKY ──────────────────────────────
   const sky = ctx.createLinearGradient(0, 0, 0, HY);
@@ -411,7 +410,6 @@ function drawField() {
   sky.addColorStop(1, '#0e2848');
   ctx.fillStyle = sky; ctx.fillRect(0, 0, W, HY);
 
-  // Stadium light halos
   [[216, 28], [808, 28]].forEach(([lx, ly]) => {
     const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, 72);
     g.addColorStop(0, 'rgba(255,242,190,0.28)');
@@ -420,22 +418,19 @@ function drawField() {
     frect(lx-4, ly, 8, 20, '#BBBBA8');
   });
 
-  // Crowd silhouette
   for (let i = 0; i < W; i += 13) {
     const h = 6 + (Math.abs(Math.sin(i*0.11+1)*5 + Math.sin(i*0.27)*4))|0;
     const s = 20 + (Math.sin(i*0.09)*5)|0;
     frect(i, HY-h-3, 12, h, `rgb(${s+8},${s},${s+20})`);
   }
 
-  // Outfield wall (green)
   frect(0, HY-4, W, 20, '#1b3e14');
   frect(0, HY-4, W, 3,  '#0c1c08');
 
   // ── 2. OUTFIELD GRASS ───────────────────
   frect(0, HY+16, W, H - HY - 16, '#1d5c1d');
-  const stripeCount = 12;
-  for (let i = 0; i < stripeCount; i++) {
-    const t0 = i / stripeCount, t1 = (i+1) / stripeCount;
+  for (let i = 0; i < 12; i++) {
+    const t0 = i/12, t1 = (i+1)/12;
     const y0 = lerp(HY+16, H, t0*t0)|0;
     const y1 = lerp(HY+16, H, t1*t1)|0;
     if (i%2 === 1) frect(0, y0, W, y1-y0, '#1b5419');
@@ -443,42 +438,38 @@ function drawField() {
 
   // ── 3. FOUL LINES ───────────────────────
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.50)';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.50)'; ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(512, 502); ctx.lineTo(80,  HY+16);  // 3B foul line
-  ctx.moveTo(512, 502); ctx.lineTo(944, HY+16);  // 1B foul line
-  ctx.stroke();
-  ctx.restore();
+  ctx.moveTo(512, 490); ctx.lineTo(80,  HY+16);
+  ctx.moveTo(512, 490); ctx.lineTo(944, HY+16);
+  ctx.stroke(); ctx.restore();
 
   // ── 4. INFIELD DIRT ─────────────────────
-  // Tighter polygon — diamond sits higher/more compressed in depth
+  // Correct geometry: 1B/3B at 90ft, mound at 60.5ft, so mound BELOW 1B/3B on screen
   ctx.beginPath();
-  ctx.moveTo(474, 484);    // left of home
-  ctx.lineTo(270, 448);    // toward 3B, outer
-  ctx.lineTo(264, 364);    // 3B height, left
-  ctx.lineTo(339, 252);    // upper left, toward 2B
-  ctx.lineTo(512, 238);    // top, above 2B
-  ctx.lineTo(685, 252);    // upper right
-  ctx.lineTo(760, 364);    // 1B height, right
-  ctx.lineTo(754, 448);    // toward 1B, outer
-  ctx.lineTo(550, 484);    // right of home
+  ctx.moveTo(476, 486);    // left of home
+  ctx.lineTo(278, 452);    // toward 3B outer
+  ctx.lineTo(270, 365);    // 3B height, left
+  ctx.lineTo(344, 260);    // upper left toward 2B
+  ctx.lineTo(512, 246);    // top, above 2B
+  ctx.lineTo(680, 260);    // upper right
+  ctx.lineTo(754, 365);    // 1B height, right
+  ctx.lineTo(746, 452);    // toward 1B outer
+  ctx.lineTo(548, 486);    // right of home
   ctx.closePath();
   ctx.fillStyle = '#5c3b1c'; ctx.fill();
 
   // ── 5. INFIELD GRASS DIAMOND ────────────
+  // 2B(512,248) 1B(706,318) 3B(318,318) — note: 1B/3B appear ABOVE mound (farther from home)
   ctx.beginPath();
-  ctx.moveTo(512, 472);    // home side
-  ctx.lineTo(679, 345);    // 1B
-  ctx.lineTo(512, 242);    // 2B
-  ctx.lineTo(345, 345);    // 3B
+  ctx.moveTo(512, 472); ctx.lineTo(698, 316);
+  ctx.lineTo(512, 246); ctx.lineTo(326, 316);
   ctx.closePath();
   ctx.fillStyle = '#236e23'; ctx.fill();
 
-  // Subtle diagonal stripes clipped to diamond
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(512, 472); ctx.lineTo(679, 345); ctx.lineTo(512, 242); ctx.lineTo(345, 345); ctx.closePath();
+  ctx.moveTo(512, 472); ctx.lineTo(698, 316); ctx.lineTo(512, 246); ctx.lineTo(326, 316); ctx.closePath();
   ctx.clip();
   ctx.strokeStyle = 'rgba(30,100,30,0.4)'; ctx.lineWidth = 8;
   for (let d = -300; d < 600; d += 26) {
@@ -489,41 +480,42 @@ function drawField() {
   // ── 6. BASE PATHS ───────────────────────
   ctx.strokeStyle = '#7a4e28'; ctx.lineWidth = 8; ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(512, 472); ctx.lineTo(679, 345);
-  ctx.moveTo(679, 345); ctx.lineTo(512, 242);
-  ctx.moveTo(512, 242); ctx.lineTo(345, 345);
-  ctx.moveTo(345, 345); ctx.lineTo(512, 472);
+  ctx.moveTo(512, 472); ctx.lineTo(698, 316);
+  ctx.moveTo(698, 316); ctx.lineTo(512, 246);
+  ctx.moveTo(512, 246); ctx.lineTo(326, 316);
+  ctx.moveTo(326, 316); ctx.lineTo(512, 472);
   ctx.stroke();
 
   // ── 7. PITCHER'S MOUND ──────────────────
-  // Small — appears very far away near horizon
-  ctx.beginPath(); ctx.ellipse(512, 224, 16, 8, 0, 0, Math.PI*2);
+  // Mound at correct depth: between 1B/3B (y≈316) and home (y≈472)
+  // Baseball: mound is 60.5ft from home, 1B is 90ft — so mound is closer to home
+  ctx.beginPath(); ctx.ellipse(512, 398, 20, 10, 0, 0, Math.PI*2);
   ctx.fillStyle = '#7a4a2a'; ctx.fill();
   ctx.strokeStyle = '#5a3215'; ctx.lineWidth = 1; ctx.stroke();
-  frect(509, 221, 6, 3, '#FFFFFF88');  // pitcher's rubber
+  frect(508, 394, 8, 4, '#FFFFFF88');
 
   // ── 8. HOME PLATE ───────────────────────
   ctx.beginPath();
-  ctx.moveTo(512, 469); ctx.lineTo(523, 475);
-  ctx.lineTo(523, 483); ctx.lineTo(501, 483);
-  ctx.lineTo(501, 475);
+  ctx.moveTo(512, 472); ctx.lineTo(524, 479);
+  ctx.lineTo(524, 487); ctx.lineTo(500, 487);
+  ctx.lineTo(500, 479);
   ctx.closePath();
   ctx.fillStyle = '#FFFFFF'; ctx.fill();
   ctx.strokeStyle = '#CCCCCC'; ctx.lineWidth = 1; ctx.stroke();
 
-  // ── 9. BASES ON FIELD ───────────────────
+  // ── 9. BASES ────────────────────────────
   drawFieldBases();
 
-  // ── 10. STRIKE ZONE (screen center — Power Pros style) ──
+  // ── 10. STRIKE ZONE ─────────────────────
   drawStrikeZone();
 }
 
 // Draw bases at their perspective positions; highlight when occupied
 function drawFieldBases() {
   [
-    { x:679, y:345, idx:0 },   // 1B
-    { x:512, y:242, idx:1 },   // 2B (smallest — furthest away)
-    { x:345, y:345, idx:2 },   // 3B
+    { x:698, y:316, idx:0 },   // 1B — 90ft from home, above mound on screen
+    { x:512, y:248, idx:1 },   // 2B — furthest, near horizon
+    { x:326, y:316, idx:2 },   // 3B
   ].forEach(({ x, y, idx }) => {
     const on = gs.bases[idx];
     const sz = idx === 1 ? 10 : 13;  // 2B smaller
@@ -680,7 +672,7 @@ function drawPitcher(cx, cy, team) {
   const P = team.secondary === '#FFFFFF' ? '#DDDDEE' : team.secondary;
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.scale(0.50, 0.50);  // very small — far end of field (Power Pros style)
+  ctx.scale(0.88, 0.88);  // visible but clearly smaller than batter
   pixelPlayer(team.primary, team.primary, P, false);
   ctx.restore();
 }
@@ -691,6 +683,77 @@ function drawBatter(cx, cy, team, showBat=true) {
   ctx.translate(cx, cy);
   ctx.scale(1.65, 1.65);
   pixelPlayer(team.primary, team.primary, P, true, showBat);
+  ctx.restore();
+}
+
+// Back-view batter sprite — large foreground figure (Power Pros style)
+function pixelPlayerBack(capC, jerseyC, pantsC, showBat=true) {
+  const sh = '#0d0d1a', be = '#252538';
+
+  // Ground shadow
+  ctx.beginPath(); ctx.ellipse(0, 2, 14, 5, 0, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(0,0,0,0.38)'; ctx.fill();
+
+  // Cleats / shoes (two feet, spread)
+  frect(-10, -6, 8, 6, sh);
+  frect(2,   -6, 8, 6, sh);
+
+  // Pants legs
+  frect(-9,  -17, 7, 11, pantsC);
+  frect(2,   -17, 7, 11, pantsC);
+
+  // Stirrups (thin stripe on lower leg)
+  frect(-8,  -16, 5, 2, '#FFFFFF44');
+  frect(3,   -16, 5, 2, '#FFFFFF44');
+
+  // Belt
+  frect(-10, -18, 20, 3, be);
+
+  // Jersey back (wide — we see the full back)
+  frect(-10, -33, 20, 15, jerseyC);
+
+  // Back number (two white pixel blocks)
+  frect(-4, -30, 3, 4, '#FFFFFF55');
+  frect(1,  -30, 3, 4, '#FFFFFF55');
+
+  // Shoulders / upper arms
+  frect(-16, -33, 6,  6, jerseyC);  // left arm
+  frect( 10, -33, 6,  6, jerseyC);  // right arm
+
+  // Batting gloves / wrists on left arm
+  frect(-17, -28, 5, 3, '#CC9944');
+
+  // Helmet (from behind — rounded, with ear flap on left)
+  frect(-9, -44, 18, 12, capC);     // helmet body
+  frect(-7, -47,  14, 4, capC);     // top curve
+  frect(-14,-42,  5,  8, capC);     // left ear flap (right-handed batter)
+
+  if (showBat) {
+    // Bat raised over right shoulder, tip pointing up-right
+    ctx.save();
+    ctx.strokeStyle = '#5C2E00'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-14, -29);   // left hand (gripping)
+    ctx.lineTo(-10, -31);   // right hand (above left)
+    ctx.stroke();
+    ctx.strokeStyle = '#8B4513'; ctx.lineWidth = 4.5;
+    ctx.beginPath();
+    ctx.moveTo(-8, -32);    // handle near hands
+    ctx.lineTo(14,  -56);   // barrel tip — up and to the right
+    ctx.stroke();
+    // Bat knob
+    ctx.beginPath(); ctx.arc(-14, -29, 3, 0, Math.PI*2);
+    ctx.fillStyle = '#3a1a00'; ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawBatterBack(cx, cy, team, showBat=true) {
+  const P = team.secondary === '#FFFFFF' ? '#DDDDEE' : team.secondary;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(3.8, 3.8);
+  pixelPlayerBack(team.primary, team.primary, P, showBat);
   ctx.restore();
 }
 
@@ -1119,13 +1182,13 @@ function drawSwingAnim() {
   const et = easeOut(t);
 
   ctx.save();
-  ctx.translate(628, 490);
-  ctx.scale(1.65, 1.65);
+  ctx.translate(672, 524);
+  ctx.scale(3.8, 3.8);
 
-  // Bat sweeps from rest (upper-left) to follow-through (upper-right)
-  const pivX = 7, pivY = -23;
-  const tipX = lerp(-22, 22, et);
-  const tipY = lerp(-48, -36, et);
+  // Bat sweeps from rest (upper-right over shoulder) through contact to follow-through (upper-left)
+  const pivX = -11, pivY = -30;
+  const tipX = lerp(14, -22, et);
+  const tipY = lerp(-56, -50, et);
 
   // Motion trail
   for (let i = 3; i >= 1; i--) {
@@ -1144,14 +1207,22 @@ function drawSwingAnim() {
   ctx.fillStyle = '#5C2E00'; ctx.fill();
   ctx.restore();
 
-  // Contact flash for good hits
+  // Contact flash for good hits — at ball landing position
   if (hitQuality > 0.43 && et > 0.25 && et < 0.72) {
     const flashA = Math.sin((et - 0.25) / 0.47 * Math.PI);
     const { actualX: fx, actualY: fy } = gs.pitch;
-    ctx.beginPath(); ctx.arc(fx, fy, 32 * et, 0, Math.PI*2);
-    ctx.strokeStyle = `rgba(255,220,50,${flashA * 0.85})`; ctx.lineWidth = 4; ctx.stroke();
-    ctx.beginPath(); ctx.arc(fx, fy, 16 * et, 0, Math.PI*2);
-    ctx.fillStyle = `rgba(255,255,180,${flashA * 0.35})`; ctx.fill();
+    ctx.beginPath(); ctx.arc(fx, fy, 44 * et, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(255,220,50,${flashA * 0.9})`; ctx.lineWidth = 5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(fx, fy, 22 * et, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,180,${flashA * 0.4})`; ctx.fill();
+    // Star sparks
+    for (let s = 0; s < 6; s++) {
+      const ang = s * Math.PI/3 + et*4;
+      const sr = 30 * et * flashA;
+      ctx.beginPath(); ctx.moveTo(fx, fy);
+      ctx.lineTo(fx + Math.cos(ang)*sr, fy + Math.sin(ang)*sr);
+      ctx.strokeStyle = `rgba(255,240,100,${flashA*0.6})`; ctx.lineWidth=2; ctx.stroke();
+    }
   }
 }
 
@@ -1226,15 +1297,15 @@ function drawInfoPanel() {
 function drawFielders() {
   const fielding = gs.half==='TOP' ? TEAMS[cfg.homeIdx] : TEAMS[cfg.awayIdx];
   const fc = fielding.primary === '#FFFFFF' ? '#CCCCCC' : fielding.primary;
-  // Outfield (LF, CF, RF) — tiny, near horizon
-  [[216, 216], [512, 204], [808, 216]].forEach(([fx, fy]) => {
+  // Outfield (LF, CF, RF) — tiny dots near horizon
+  [[216, 210], [512, 200], [808, 210]].forEach(([fx, fy]) => {
     ctx.beginPath(); ctx.arc(fx, fy, 3, 0, Math.PI*2);
     ctx.fillStyle = fc + '99'; ctx.fill();
     ctx.strokeStyle = '#FFFFFF33'; ctx.lineWidth = 1; ctx.stroke();
   });
-  // Infield (SS between 3B-2B, 2B fielder between 2B-1B)
-  [[436, 305], [588, 305]].forEach(([fx, fy]) => {
-    ctx.beginPath(); ctx.arc(fx, fy, 4, 0, Math.PI*2);
+  // Infield (SS, 2B) — between 1B/3B and mound
+  [[432, 282], [592, 282]].forEach(([fx, fy]) => {
+    ctx.beginPath(); ctx.arc(fx, fy, 5, 0, Math.PI*2);
     ctx.fillStyle = fc + 'AA'; ctx.fill();
     ctx.strokeStyle = '#FFFFFF44'; ctx.lineWidth = 1; ctx.stroke();
   });
@@ -1413,25 +1484,24 @@ function drawHitFlight() {
 }
 
 function drawPitchTypeHUD() {
-  const bw = 80, bh = 28, gap = 8;
-  const totalW = PITCH_TYPES.length * (bw + gap) - gap;
-  const startX = W/2 - totalW / 2;
+  const bw = 80, bh = 28, gap = 6;
+  const startX = 12;
   const by = H - 54;
 
-  txt('PITCH  TYPE:', W/2, by - 12, 5, '#888899');
+  txt('PITCH:', startX + 124, by - 12, 5, '#888899');
 
   PITCH_TYPES.forEach((pt, i) => {
     const bx = startX + i * (bw + gap);
     const sel = i === gs.pitchType;
     const hov = inRect(mouse.x, mouse.y, bx, by, bw, bh);
-    frect(bx, by, bw, bh, sel ? '#141e14' : '#0c0c1e');
+    frect(bx, by, bw, bh, sel ? '#141e14' : '#0a0a18');
     srect(bx, by, bw, bh, sel ? pt.col : hov ? pt.col + '88' : '#333355', sel ? 3 : 2);
     txt(pt.label, bx + bw/2, by + 10, 6, sel ? pt.col : '#AAAAAA');
     txt(pt.desc,  bx + bw/2, by + 22, 4, sel ? '#FFFFFF' : '#555577');
   });
 
   if ((tick >> 4) % 2 === 0) {
-    txt('CLICK  TO  PITCH', W/2, H - 18, 7, '#FFFF44');
+    txt('CLICK  TO  PITCH', startX + 124, H - 18, 6, '#FFFF44');
   }
 }
 
@@ -1451,10 +1521,10 @@ function loop() {
     const batting  = gs.half==='TOP' ? TEAMS[cfg.awayIdx]  : TEAMS[cfg.homeIdx];
     drawField();
     drawFielders();
-    drawPitcher(512, 218, pitching);
+    drawPitcher(512, 388, pitching);
     drawBallFlight();
     drawHitFlight();
-    drawBatter(628, 490, batting, !gs.swingAnim.active);
+    drawBatterBack(672, 524, batting, !gs.swingAnim.active);
     drawSwingAnim();
     drawAimCursor();
     drawSwingPrompt();

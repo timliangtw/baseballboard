@@ -45,9 +45,9 @@ const TEAMS = [
   { id:'CAN', name:'CANADA',         flag:'🇨🇦', primary:'#CC0000', secondary:'#FFFFFF', accent:'#000000' },
 ];
 
-// Strike zone trapezoid
-const SZ = { topY:355, topHW:44, botY:455, botHW:66, cx:512 };
-const PITCH_START = { x:512, y:292 }; // pitcher rubber visual position
+// Strike zone — vertical plane above home plate (slightly wider at bottom for depth cue)
+const SZ = { topY:352, topHW:40, botY:462, botHW:48, cx:512 };
+const PITCH_START = { x:512, y:282 }; // pitcher rubber
 const PITCH_CONTROL = 80;             // max random offset (px); center≈75% strike, edge≈55%
 
 // ═══════════════════════════════════════
@@ -360,68 +360,176 @@ function drawSetupTeam(isHome) {
 }
 
 // ═══════════════════════════════════════
-//  GAME: FIELD
+//  GAME: FIELD  (catcher's-eye perspective)
 // ═══════════════════════════════════════
+//
+//  Key reference points (screen coords):
+//    Horizon  y=190   Mound (512,282)
+//    1B (712,415)     2B (512,302)     3B (312,415)
+//    Home plate pentagon centered near y=485
+//    Batter sprite at (512,472) — feet just above plate
+//
 function drawField() {
-  // Sky
-  frect(0, 62, W, H-62, '#0a1628');
+  const HY = 190;  // horizon y
 
-  // Grass stripes
-  for (let i = 0; i < 13; i++) {
-    frect(0, 62 + i*40, W, 40, i%2===0 ? '#1e5520' : '#1a4a18');
+  // ── 1. SKY ──────────────────────────────
+  const sky = ctx.createLinearGradient(0, 0, 0, HY);
+  sky.addColorStop(0, '#060d1f');
+  sky.addColorStop(1, '#0e2848');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, HY);
+
+  // Stadium light halos
+  [[216, 28], [808, 28]].forEach(([lx, ly]) => {
+    const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, 72);
+    g.addColorStop(0, 'rgba(255,242,190,0.28)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(lx-72, 0, 144, HY);
+    frect(lx-4, ly, 8, 20, '#BBBBA8');  // pole top
+  });
+
+  // Crowd silhouette
+  for (let i = 0; i < W; i += 13) {
+    const h = 6 + (Math.abs(Math.sin(i*0.11+1)*5 + Math.sin(i*0.27)*4))|0;
+    const s = 20 + (Math.sin(i*0.09)*5)|0;
+    frect(i, HY-h-3, 12, h, `rgb(${s+8},${s},${s+20})`);
   }
 
-  // Infield dirt
-  ctx.beginPath();
-  ctx.arc(512, 520, 310, 0, Math.PI*2);
-  ctx.fillStyle = '#5a3a1a'; ctx.fill();
+  // Outfield wall (green)
+  frect(0, HY-4, W, 20, '#1b3e14');
+  frect(0, HY-4, W, 3,  '#0c1c08');  // top shadow
 
-  // Infield grass
-  ctx.beginPath();
-  ctx.arc(512, 520, 248, 0, Math.PI*2);
-  ctx.fillStyle = '#1e5520'; ctx.fill();
+  // ── 2. OUTFIELD GRASS ───────────────────
+  frect(0, HY+16, W, H - HY - 16, '#1d5c1d');
+  // Perspective stripes: tight near horizon, wide close-up
+  const stripeCount = 12;
+  for (let i = 0; i < stripeCount; i++) {
+    const t0 = i / stripeCount, t1 = (i+1) / stripeCount;
+    // Non-linear: stripes compress toward horizon
+    const y0 = lerp(HY+16, H, t0*t0)|0;
+    const y1 = lerp(HY+16, H, t1*t1)|0;
+    if (i%2 === 1) frect(0, y0, W, y1-y0, '#1b5419');
+  }
 
-  // Foul lines (perspective)
-  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  // ── 3. FOUL LINES ───────────────────────
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.50)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(512, H); ctx.lineTo(80, 80);
-  ctx.moveTo(512, H); ctx.lineTo(944, 80);
+  ctx.moveTo(512, 524); ctx.lineTo(62,  HY+16);  // 3B foul line
+  ctx.moveTo(512, 524); ctx.lineTo(962, HY+16);  // 1B foul line
+  ctx.stroke();
+  ctx.restore();
+
+  // ── 4. INFIELD DIRT ─────────────────────
+  // Large arc polygon enclosing the diamond, with buffer beyond each base
+  ctx.beginPath();
+  ctx.moveTo(466, 494);    // left of home
+  ctx.lineTo(252, 455);    // toward 3B, outer
+  ctx.lineTo(248, 374);    // 3B height, left
+  ctx.lineTo(326, 278);    // upper left, toward 2B
+  ctx.lineTo(512, 263);    // top, above 2B
+  ctx.lineTo(698, 278);    // upper right
+  ctx.lineTo(776, 374);    // 1B height, right
+  ctx.lineTo(772, 455);    // toward 1B, outer
+  ctx.lineTo(558, 494);    // right of home
+  ctx.closePath();
+  ctx.fillStyle = '#5c3b1c'; ctx.fill();
+
+  // ── 5. INFIELD GRASS DIAMOND ────────────
+  ctx.beginPath();
+  ctx.moveTo(512, 482);    // home side
+  ctx.lineTo(706, 413);    // 1B
+  ctx.lineTo(512, 308);    // 2B
+  ctx.lineTo(318, 413);    // 3B
+  ctx.closePath();
+  ctx.fillStyle = '#236e23'; ctx.fill();
+
+  // Subtle diagonal stripes on infield grass
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(512, 482); ctx.lineTo(706, 413); ctx.lineTo(512, 308); ctx.lineTo(318, 413); ctx.closePath();
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(30,100,30,0.4)'; ctx.lineWidth = 8;
+  for (let d = -300; d < 600; d += 26) {
+    ctx.beginPath(); ctx.moveTo(d, 200); ctx.lineTo(d+200, 520); ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── 6. BASE PATHS (dirt strips) ──────────
+  ctx.strokeStyle = '#7a4e28'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(512, 482); ctx.lineTo(706, 413);  // home→1B
+  ctx.moveTo(706, 413); ctx.lineTo(512, 308);  // 1B→2B
+  ctx.moveTo(512, 308); ctx.lineTo(318, 413);  // 2B→3B
+  ctx.moveTo(318, 413); ctx.lineTo(512, 482);  // 3B→home
   ctx.stroke();
 
-  // Pitcher rubber (far, small)
-  frect(508, 290, 8, 4, '#FFFFFF99');
+  // ── 7. PITCHER'S MOUND ──────────────────
+  ctx.beginPath(); ctx.ellipse(512, 290, 28, 15, 0, 0, Math.PI*2);
+  ctx.fillStyle = '#7a4a2a'; ctx.fill();
+  ctx.strokeStyle = '#5a3215'; ctx.lineWidth = 1; ctx.stroke();
+  frect(508, 286, 8, 4, '#FFFFFF88');  // pitcher's rubber
 
-  // Home plate
-  frect(503, 472, 18, 12, '#FFFFFF');
+  // ── 8. HOME PLATE ───────────────────────
+  ctx.beginPath();
+  ctx.moveTo(512, 479); ctx.lineTo(525, 486);
+  ctx.lineTo(525, 495); ctx.lineTo(499, 495);
+  ctx.lineTo(499, 486);
+  ctx.closePath();
+  ctx.fillStyle = '#FFFFFF'; ctx.fill();
+  ctx.strokeStyle = '#CCCCCC'; ctx.lineWidth = 1; ctx.stroke();
 
-  // Strike zone
+  // ── 9. BASES ON FIELD ───────────────────
+  drawFieldBases();
+
+  // ── 10. STRIKE ZONE (vertical, floating) ─
   drawStrikeZone();
+}
+
+// Draw bases at their perspective positions; highlight when occupied
+function drawFieldBases() {
+  [
+    { x:712, y:415, idx:0 },   // 1B
+    { x:512, y:302, idx:1 },   // 2B (slightly smaller — more distant)
+    { x:312, y:415, idx:2 },   // 3B
+  ].forEach(({ x, y, idx }) => {
+    const on = gs.bases[idx];
+    const sz = idx === 1 ? 10 : 13;  // 2B smaller
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(Math.PI/4);
+    frect(-sz/2, -sz/2, sz, sz, on ? '#FFE840' : '#DDD0A0');
+    srect(-sz/2, -sz/2, sz, sz, on ? '#FFFFFF' : '#9A8860', 1.5);
+    ctx.restore();
+  });
 }
 
 function drawStrikeZone() {
   const { topY, topHW, botY, botHW, cx } = SZ;
+
+  // Semi-transparent fill
   ctx.beginPath();
   ctx.moveTo(cx-topHW, topY); ctx.lineTo(cx+topHW, topY);
   ctx.lineTo(cx+botHW, botY); ctx.lineTo(cx-botHW, botY);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(255,255,220,0.05)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,180,0.75)';
+  ctx.fillStyle = 'rgba(255,255,220,0.06)'; ctx.fill();
+
+  // Border — dashed
+  ctx.strokeStyle = 'rgba(255,255,180,0.80)';
   ctx.lineWidth = 2; ctx.setLineDash([6,4]); ctx.stroke(); ctx.setLineDash([]);
 
-  // 3×3 grid inside
-  ctx.strokeStyle = 'rgba(255,255,180,0.22)'; ctx.lineWidth = 1;
-  for (let t=1; t<=2; t++) {
-    const f=t/3;
+  // Inner 3×3 grid (perspective-correct vertical dividers)
+  ctx.strokeStyle = 'rgba(255,255,180,0.25)'; ctx.lineWidth = 1;
+  for (let t = 1; t <= 2; t++) {
+    const f = t/3;
     ctx.beginPath();
     ctx.moveTo(cx - topHW + topHW*2*f, topY);
     ctx.lineTo(cx - botHW + botHW*2*f, botY);
     ctx.stroke();
   }
-  for (let t=1; t<=2; t++) {
-    const f=t/3, y=topY+(botY-topY)*f, hw=topHW+(botHW-topHW)*f;
-    ctx.beginPath();
-    ctx.moveTo(cx-hw, y); ctx.lineTo(cx+hw, y); ctx.stroke();
+  for (let t = 1; t <= 2; t++) {
+    const f = t/3, y = topY + (botY-topY)*f;
+    const hw = topHW + (botHW-topHW)*f;
+    ctx.beginPath(); ctx.moveTo(cx-hw, y); ctx.lineTo(cx+hw, y); ctx.stroke();
   }
 }
 
@@ -540,7 +648,7 @@ function drawPitcher(cx, cy, team) {
   const P = team.secondary === '#FFFFFF' ? '#DDDDEE' : team.secondary;
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.scale(0.92, 0.92);
+  ctx.scale(0.68, 0.68);  // small — far end of field
   pixelPlayer(team.primary, team.primary, P, false);
   ctx.restore();
 }
@@ -1093,7 +1201,7 @@ function loop() {
     const pitching = gs.half==='TOP' ? TEAMS[cfg.homeIdx]  : TEAMS[cfg.awayIdx];
     const batting  = gs.half==='TOP' ? TEAMS[cfg.awayIdx]  : TEAMS[cfg.homeIdx];
     drawField();
-    drawPitcher(512, 300, pitching);    // behind ball
+    drawPitcher(512, 282, pitching);    // on mound, behind ball
     drawBallFlight();
     drawBatter(512, 472, batting, !gs.swingAnim.active);
     drawSwingAnim();

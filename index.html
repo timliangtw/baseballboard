@@ -15,8 +15,7 @@ body {
 }
 canvas {
   display:block;
-  image-rendering:pixelated;
-  image-rendering:crisp-edges;
+  image-rendering:auto;
   cursor:none;
 }
 </style>
@@ -82,7 +81,11 @@ const gs = {
 // ═══════════════════════════════════════
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-canvas.width = W; canvas.height = H;
+// High-DPI: render at device pixel ratio for crisp text and graphics
+const dpr = Math.min(window.devicePixelRatio || 1, 3);
+canvas.width  = W * dpr;
+canvas.height = H * dpr;
+ctx.scale(dpr, dpr);
 
 let scale = 1, offX = 0, offY = 0;
 
@@ -432,7 +435,8 @@ function drawScoreboard() {
   txt(pad2(gs.score.home), W-88, 44, 16, hm.secondary);
 
   // Inning center
-  txt(`${gs.inning}局`, W/2, 14, 9, '#FFFFFF');
+  const ordinals = ['','1ST','2ND','3RD','4TH','5TH','6TH','7TH','8TH','9TH'];
+  txt(ordinals[gs.inning] || `${gs.inning}TH`, W/2, 14, 8, '#FFFFFF');
   txt(gs.half==='TOP' ? '▲' : '▼', W/2, 42, 16, gs.half==='TOP' ? '#FF8844' : '#44AAFF');
 
   // Inning-by-inning grid
@@ -471,6 +475,76 @@ function drawBSO(x, y) {
 }
 
 // ═══════════════════════════════════════
+//  GAME: PLAYER SPRITES
+// ═══════════════════════════════════════
+// Draw a pixel-art baseball player.
+// Origin = feet-center. ctx.translate(cx,cy) then call this.
+// isHitter=true → batting helmet + bat; false → pitcher cap + glove
+function pixelPlayer(capC, jerseyC, pantsC, isHitter) {
+  const sk = '#F0C090', sh = '#111122', be = '#333344';
+  // Ground shadow
+  ctx.beginPath(); ctx.ellipse(0, 1, 9, 3, 0, 0, Math.PI*2);
+  ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fill();
+  // Shoes
+  frect(-7, -4, 6, 4, sh);  frect(1, -4, 6, 4, sh);
+  // Pants / legs
+  frect(-6, -13, 5, 9, pantsC);  frect(1, -13, 5, 9, pantsC);
+  // Belt
+  frect(-7, -14, 14, 2, be);
+  // Jersey body
+  frect(-7, -26, 14, 12, jerseyC);
+  // Sleeve left arm
+  frect(-12, -26, 5, 5, jerseyC);
+  // Sleeve right arm
+  frect(7, -26, 5, 5, jerseyC);
+  // Head (skin)
+  frect(-5, -36, 10, 10, sk);
+  // Eyes
+  frect(-3, -33, 2, 2, be);  frect(1, -33, 2, 2, be);
+
+  if (isHitter) {
+    // Batting helmet (larger, with ear flap)
+    frect(-6, -42, 12, 7, capC);
+    frect(6, -40, 5, 5, capC);   // ear flap
+    // Bat (angled toward pitcher)
+    ctx.save();
+    ctx.strokeStyle = '#7B3F00'; ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(7, -23); ctx.lineTo(-22, -48); ctx.stroke();
+    // Bat knob
+    ctx.beginPath(); ctx.arc(8, -22, 3, 0, Math.PI*2);
+    ctx.fillStyle = '#5C2E00'; ctx.fill();
+    ctx.restore();
+  } else {
+    // Pitcher cap
+    frect(-5, -41, 10, 6, capC);
+    frect(-8, -39, 4, 2, capC);  // brim
+    // Glove (raised left hand)
+    frect(-16, -27, 5, 5, jerseyC);
+    ctx.beginPath(); ctx.ellipse(-15, -24, 5, 4, -0.3, 0, Math.PI*2);
+    ctx.fillStyle = '#8B6914'; ctx.fill();
+  }
+}
+
+function drawPitcher(cx, cy, team) {
+  const P = team.secondary === '#FFFFFF' ? '#DDDDEE' : team.secondary;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(0.92, 0.92);
+  pixelPlayer(team.primary, team.primary, P, false);
+  ctx.restore();
+}
+
+function drawBatter(cx, cy, team) {
+  const P = team.secondary === '#FFFFFF' ? '#DDDDEE' : team.secondary;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1.45, 1.45);
+  pixelPlayer(team.primary, team.primary, P, true);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════
 //  GAME: BASE DIAMOND
 // ═══════════════════════════════════════
 function drawBaseDiamond() {
@@ -503,6 +577,8 @@ function drawBaseDiamond() {
 function drawBatterCursor() {
   const batting = gs.half==='TOP' ? TEAMS[cfg.awayIdx] : TEAMS[cfg.homeIdx];
   const { batX:bx, batY:by } = gs;
+  // Dim cursor while pitcher is aiming
+  if (gs.gamePhase === 'PITCH_AIM') ctx.globalAlpha = 0.35;
 
   // Glow ring
   ctx.beginPath(); ctx.arc(bx, by, 44, 0, Math.PI*2);
@@ -523,6 +599,7 @@ function drawBatterCursor() {
     ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
   });
   ctx.setLineDash([]);
+  ctx.globalAlpha = 1.0; // restore after potential dim
 }
 
 // ═══════════════════════════════════════
@@ -787,8 +864,12 @@ function loop() {
   else if (phase === 'SETUP_HOME')   drawSetupTeam(true);
   else if (phase === 'GAME') {
     updateGame();
+    const pitching = gs.half==='TOP' ? TEAMS[cfg.homeIdx]  : TEAMS[cfg.awayIdx];
+    const batting  = gs.half==='TOP' ? TEAMS[cfg.awayIdx]  : TEAMS[cfg.homeIdx];
     drawField();
+    drawPitcher(512, 300, pitching);    // behind ball
     drawBallFlight();
+    drawBatter(488, 472, batting);      // in front, beside plate
     drawAimCursor();
     drawSwingPrompt();
     drawBatterCursor();

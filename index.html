@@ -853,15 +853,28 @@ function drawInfoPanel() {
 }
 
 // ═══════════════════════════════════════
+//  PIXEL CURSOR (non-game screens)
+// ═══════════════════════════════════════
+function drawMouseCursor() {
+  const x = mouse.x|0, y = mouse.y|0;
+  // Black outline
+  frect(x-1, y-9, 4, 19, '#000000');
+  frect(x-9, y-1, 19, 4, '#000000');
+  // White crosshair
+  frect(x,   y-8, 2, 17, '#FFFFFF');
+  frect(x-8, y,   17, 2, '#FFFFFF');
+}
+
+// ═══════════════════════════════════════
 //  MAIN LOOP
 // ═══════════════════════════════════════
 function loop() {
   ctx.clearRect(0, 0, W, H);
 
-  if (phase === 'TITLE')        drawTitle();
-  else if (phase === 'SETUP_INNING') drawSetupInning();
-  else if (phase === 'SETUP_AWAY')   drawSetupTeam(false);
-  else if (phase === 'SETUP_HOME')   drawSetupTeam(true);
+  if (phase === 'TITLE')        { drawTitle();         drawMouseCursor(); }
+  else if (phase === 'SETUP_INNING') { drawSetupInning();  drawMouseCursor(); }
+  else if (phase === 'SETUP_AWAY')   { drawSetupTeam(false); drawMouseCursor(); }
+  else if (phase === 'SETUP_HOME')   { drawSetupTeam(true);  drawMouseCursor(); }
   else if (phase === 'GAME') {
     updateGame();
     const pitching = gs.half==='TOP' ? TEAMS[cfg.homeIdx]  : TEAMS[cfg.awayIdx];
@@ -869,7 +882,7 @@ function loop() {
     drawField();
     drawPitcher(512, 300, pitching);    // behind ball
     drawBallFlight();
-    drawBatter(488, 472, batting);      // in front, beside plate
+    drawBatter(512, 472, batting);      // centered at home plate
     drawAimCursor();
     drawSwingPrompt();
     drawBatterCursor();

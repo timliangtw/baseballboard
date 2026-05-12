@@ -73,7 +73,11 @@ const gs = {
     t: 0,      // flight progress 0→1
     speed: 0.020,
   },
-  result: { text:'', color:'#FFFFFF', timer:0, maxTimer:0 },
+  result: { text:'', color:'#FFFFFF', timer:0, maxTimer:0, subtext:'' },
+  // Phase 3
+  swingAnim: { active:false, t:0, hitQuality:0 },
+  lastResultType: '', // HR | 2B | 1B | FOUL | OUT | STRIKE | BALL | WALK
+  halfStartScore: { away:0, home:0 },
 };
 
 // ═══════════════════════════════════════
@@ -139,6 +143,9 @@ function handleClick({ x, y }) {
   if (phase === 'TITLE') {
     if (inRect(x, y, W/2-130, 298, 260, 54)) phase = 'SETUP_INNING';
   }
+  else if (phase === 'GAME_OVER') {
+    if (inRect(x, y, W/2-130, 385, 260, 54)) phase = 'TITLE';
+  }
   else if (phase === 'SETUP_INNING') {
     [3, 6, 9].forEach((n, i) => {
       if (inRect(x, y, W/2 - 200 + i*200 - 70, H/2 - 35, 140, 70)) {
@@ -190,6 +197,9 @@ function startGame() {
   gs.pitch.aimX = SZ.cx;
   gs.pitch.aimY = (SZ.topY + SZ.botY) / 2;
   gs.pitch.t = 0;
+  gs.swingAnim = { active:false, t:0, hitQuality:0 };
+  gs.lastResultType = '';
+  gs.halfStartScore = { away:0, home:0 };
   phase = 'GAME';
 }
 
@@ -480,7 +490,7 @@ function drawBSO(x, y) {
 // Draw a pixel-art baseball player.
 // Origin = feet-center. ctx.translate(cx,cy) then call this.
 // isHitter=true → batting helmet + bat; false → pitcher cap + glove
-function pixelPlayer(capC, jerseyC, pantsC, isHitter) {
+function pixelPlayer(capC, jerseyC, pantsC, isHitter, showBat=true) {
   const sk = '#F0C090', sh = '#111122', be = '#333344';
   // Ground shadow
   ctx.beginPath(); ctx.ellipse(0, 1, 9, 3, 0, 0, Math.PI*2);
@@ -506,15 +516,15 @@ function pixelPlayer(capC, jerseyC, pantsC, isHitter) {
     // Batting helmet (larger, with ear flap)
     frect(-6, -42, 12, 7, capC);
     frect(6, -40, 5, 5, capC);   // ear flap
-    // Bat (angled toward pitcher)
-    ctx.save();
-    ctx.strokeStyle = '#7B3F00'; ctx.lineWidth = 3.5;
-    ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(7, -23); ctx.lineTo(-22, -48); ctx.stroke();
-    // Bat knob
-    ctx.beginPath(); ctx.arc(8, -22, 3, 0, Math.PI*2);
-    ctx.fillStyle = '#5C2E00'; ctx.fill();
-    ctx.restore();
+    if (showBat) {
+      // Bat (angled toward pitcher, hidden during swing animation)
+      ctx.save();
+      ctx.strokeStyle = '#7B3F00'; ctx.lineWidth = 3.5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(7, -23); ctx.lineTo(-22, -48); ctx.stroke();
+      ctx.beginPath(); ctx.arc(8, -22, 3, 0, Math.PI*2);
+      ctx.fillStyle = '#5C2E00'; ctx.fill();
+      ctx.restore();
+    }
   } else {
     // Pitcher cap
     frect(-5, -41, 10, 6, capC);
@@ -535,12 +545,12 @@ function drawPitcher(cx, cy, team) {
   ctx.restore();
 }
 
-function drawBatter(cx, cy, team) {
+function drawBatter(cx, cy, team, showBat=true) {
   const P = team.secondary === '#FFFFFF' ? '#DDDDEE' : team.secondary;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.scale(1.45, 1.45);
-  pixelPlayer(team.primary, team.primary, P, true);
+  pixelPlayer(team.primary, team.primary, P, true, showBat);
   ctx.restore();
 }
 
@@ -626,23 +636,66 @@ function setPitch(tx, ty) {
   gs.gamePhase = 'BALL_FLIGHT';
 }
 
+function easeOut(t) { return 1 - Math.pow(1 - t, 2); }
+
 function doSwing() {
-  // Snapshot batter position - Phase 3 computes full collision
-  // Phase 2: mark swing happened, Phase 3 determines hit/miss quality
-  gs.gamePhase = 'SHOW_RESULT';
+  const t    = gs.pitch.t;
   const dist = Math.hypot(gs.batX - gs.pitch.actualX, gs.batY - gs.pitch.actualY);
-  if (dist < 30) {
-    showResult('HIT!', '#FFFF44', 90);
-  } else if (dist < 55) {
-    showResult('FOUL!', '#FF8844', 80);
-    gs.strikes = Math.min(2, gs.strikes + 1); // foul never 3rd strike
-  } else {
+
+  // ── Timing score (when in the window did player swing?) ──
+  const timingScore = t < 0.82 ? 0.65 : t < 0.93 ? 1.0 : 0.72;
+  const timingLabel = t < 0.82 ? 'EARLY' : t < 0.93 ? 'PERFECT' : 'LATE';
+
+  // ── Distance score (how well did bat meet ball?) ──
+  let distScore;
+  if      (dist < 15) distScore = 1.0;
+  else if (dist < 38) distScore = lerp(1.0, 0.55, (dist-15)/23);
+  else if (dist < 60) distScore = lerp(0.55, 0.05, (dist-38)/22);
+  else                distScore = 0.0;
+
+  const quality = distScore * timingScore;
+  const qr = quality + (Math.random() * 0.10 - 0.05); // small variance
+
+  // Trigger swing animation (hides static bat)
+  gs.swingAnim = { active:true, t:0, hitQuality:quality };
+
+  // ── Complete miss ──
+  if (distScore === 0) {
     gs.strikes++;
+    gs.lastResultType = 'STRIKE';
     if (gs.strikes >= 3) {
-      gs.outs++; gs.balls = 0; gs.strikes = 0;
-      showResult('STRIKEOUT!', '#FF4444', 110);
+      gs.outs++; gs.balls=0; gs.strikes=0;
+      showResult('STRIKEOUT!', '#FF4444', 110, timingLabel + '  TIMING');
     } else {
-      showResult('SWING  MISS!', '#FF6644', 80);
+      showResult('SWING  MISS', '#FF6644', 85, timingLabel + '  TIMING');
+    }
+    return;
+  }
+
+  // ── Hit quality → result ──
+  if (qr > 0.90) {
+    gs.lastResultType = 'HR';
+    advanceRunners(4);
+    showResult('HOME  RUN!!', '#FFD700', 150, 'PERFECT  CONTACT!');
+  } else if (qr > 0.68) {
+    gs.lastResultType = '2B';
+    advanceRunners(2);
+    showResult('DOUBLE!', '#44EEFF', 110, timingLabel + '  TIMING');
+  } else if (qr > 0.43) {
+    gs.lastResultType = '1B';
+    advanceRunners(1);
+    showResult('SINGLE!', '#44FF88', 100, timingLabel + '  TIMING');
+  } else if (qr > 0.18) {
+    gs.lastResultType = 'FOUL';
+    gs.strikes = Math.min(2, gs.strikes + 1);
+    showResult('FOUL  BALL', '#FF8844', 80, timingLabel + '  TIMING');
+  } else {
+    gs.lastResultType = 'OUT';
+    gs.outs++;
+    if (gs.outs >= 3) {
+      showResult('3  OUTS!', '#FF4444', 120, 'INNING  OVER');
+    } else {
+      showResult('OUT!', '#FF6644', 90, 'WEAK  CONTACT');
     }
   }
 }
@@ -651,32 +704,92 @@ function resolveNoPitch() {
   const inZone = isInStrikeZone(gs.pitch.actualX, gs.pitch.actualY);
   if (inZone) {
     gs.strikes++;
+    gs.lastResultType = 'STRIKE';
     if (gs.strikes >= 3) {
-      gs.outs++; gs.balls = 0; gs.strikes = 0;
-      showResult('STRIKEOUT!', '#FF4444', 110);
+      gs.outs++; gs.balls=0; gs.strikes=0;
+      showResult('STRIKEOUT!', '#FF4444', 110, 'CALLED  STRIKE  3');
     } else {
-      showResult('STRIKE!', '#FF8844', 80);
+      showResult('STRIKE!', '#FF8844', 80, 'CALLED  STRIKE');
     }
   } else {
     gs.balls++;
+    gs.lastResultType = 'BALL';
     if (gs.balls >= 4) {
-      gs.balls = 0; gs.strikes = 0;
-      showResult('WALK!', '#44AAFF', 100);
+      gs.balls=0; gs.strikes=0;
+      walkBatter();
+      showResult('WALK!', '#44AAFF', 100, 'BASE  ON  BALLS');
     } else {
-      showResult('BALL!', '#44FF44', 80);
+      showResult('BALL!', '#44FF44', 80, '');
     }
   }
 }
 
-function showResult(text, color, frames) {
+function showResult(text, color, frames, subtext='') {
   gs.result.text = text;
   gs.result.color = color;
   gs.result.timer = frames;
   gs.result.maxTimer = frames;
+  gs.result.subtext = subtext;
   gs.gamePhase = 'SHOW_RESULT';
 }
 
 function nextPitch() {
+  gs.swingAnim = { active:false, t:0, hitQuality:0 };
+  if (gs.outs >= 3) { advanceHalf(); return; }
+  gs.pitch.t = 0;
+  gs.pitch.aimX = SZ.cx;
+  gs.pitch.aimY = (SZ.topY + SZ.botY) / 2;
+  gs.gamePhase = 'PITCH_AIM';
+}
+
+function walkBatter() {
+  let runs = 0;
+  if (gs.bases[0] && gs.bases[1] && gs.bases[2]) { runs = 1; }
+  else {
+    if (gs.bases[0] && gs.bases[1]) gs.bases[2] = true;
+    if (gs.bases[0]) gs.bases[1] = true;
+  }
+  gs.bases[0] = true;
+  if (runs > 0) {
+    if (gs.half === 'TOP') gs.score.away += runs;
+    else gs.score.home += runs;
+  }
+}
+
+function advanceRunners(bases) {
+  let runs = 0;
+  const next = [false, false, false];
+  for (let b = 2; b >= 0; b--) {
+    if (!gs.bases[b]) continue;
+    const dest = b + bases;
+    if (dest >= 3) runs++;
+    else next[dest] = true;
+  }
+  const bDest = bases - 1;
+  if (bDest >= 3) runs++;
+  else next[bDest] = true;
+  gs.bases = next;
+  if (runs > 0) {
+    if (gs.half === 'TOP') gs.score.away += runs;
+    else gs.score.home += runs;
+  }
+}
+
+function advanceHalf() {
+  const idx = gs.inning - 1;
+  if (gs.half === 'TOP') {
+    gs.inningScores.away[idx] = gs.score.away - gs.halfStartScore.away;
+    gs.half = 'BOT';
+    gs.halfStartScore = { away: gs.score.away, home: gs.score.home };
+  } else {
+    gs.inningScores.home[idx] = gs.score.home - gs.halfStartScore.home;
+    gs.inning++;
+    if (gs.inning > cfg.innings) { phase = 'GAME_OVER'; return; }
+    gs.half = 'TOP';
+    gs.halfStartScore = { away: gs.score.away, home: gs.score.home };
+  }
+  gs.outs = 0; gs.balls = 0; gs.strikes = 0;
+  gs.bases = [false, false, false];
   gs.pitch.t = 0;
   gs.pitch.aimX = SZ.cx;
   gs.pitch.aimY = (SZ.topY + SZ.botY) / 2;
@@ -692,6 +805,10 @@ function updateGame() {
   } else if (gp === 'SHOW_RESULT') {
     gs.result.timer--;
     if (gs.result.timer <= 0) nextPitch();
+  }
+  if (gs.swingAnim.active) {
+    gs.swingAnim.t = Math.min(1.0, gs.swingAnim.t + 0.065);
+    if (gs.swingAnim.t >= 1.0) gs.swingAnim.active = false;
   }
 }
 
@@ -789,28 +906,74 @@ function drawSwingPrompt() {
 }
 
 // ═══════════════════════════════════════
+//  PHASE 3: DRAW — SWING ANIMATION
+// ═══════════════════════════════════════
+function drawSwingAnim() {
+  if (!gs.swingAnim.active) return;
+  const { t, hitQuality } = gs.swingAnim;
+  const et = easeOut(t);
+
+  ctx.save();
+  ctx.translate(512, 472);
+  ctx.scale(1.45, 1.45);
+
+  // Bat sweeps from rest (upper-left) to follow-through (upper-right)
+  const pivX = 7, pivY = -23;
+  const tipX = lerp(-22, 22, et);
+  const tipY = lerp(-48, -36, et);
+
+  // Motion trail
+  for (let i = 3; i >= 1; i--) {
+    const et2 = Math.max(0, et - i * 0.18);
+    const tx2 = lerp(-22, 22, et2);
+    const ty2 = lerp(-48, -36, et2);
+    ctx.strokeStyle = `rgba(180,140,80,${(4-i)*0.07})`;
+    ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(pivX, pivY); ctx.lineTo(tx2, ty2); ctx.stroke();
+  }
+
+  // Bat
+  ctx.strokeStyle = '#7B3F00'; ctx.lineWidth = 3.5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(pivX, pivY); ctx.lineTo(tipX, tipY); ctx.stroke();
+  ctx.beginPath(); ctx.arc(pivX+1, pivY+1, 3, 0, Math.PI*2);
+  ctx.fillStyle = '#5C2E00'; ctx.fill();
+  ctx.restore();
+
+  // Contact flash for good hits
+  if (hitQuality > 0.43 && et > 0.25 && et < 0.72) {
+    const flashA = Math.sin((et - 0.25) / 0.47 * Math.PI);
+    const { actualX: fx, actualY: fy } = gs.pitch;
+    ctx.beginPath(); ctx.arc(fx, fy, 32 * et, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(255,220,50,${flashA * 0.85})`; ctx.lineWidth = 4; ctx.stroke();
+    ctx.beginPath(); ctx.arc(fx, fy, 16 * et, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,180,${flashA * 0.35})`; ctx.fill();
+  }
+}
+
+// ═══════════════════════════════════════
 //  PHASE 2: DRAW — RESULT OVERLAY
 // ═══════════════════════════════════════
 function drawResult() {
   if (gs.gamePhase !== 'SHOW_RESULT') return;
-  const { text, color, timer, maxTimer } = gs.result;
+  const { text, color, timer, maxTimer, subtext } = gs.result;
   const alpha = timer <= 18 ? timer / 18 : 1.0;
   ctx.globalAlpha = alpha;
 
   frect(0, 62, W, H - 62, 'rgba(0,0,0,0.42)');
 
-  // Box
-  const bw = 420, bh = 84;
+  const bw = 420, bh = subtext ? 106 : 84;
   frect(W/2-bw/2, H/2-bh/2, bw, bh, '#08081a');
   srect(W/2-bw/2, H/2-bh/2, bw, bh, color, 3);
 
-  // Text with pixel outline
+  const mainY = subtext ? H/2 - 16 : H/2;
   ctx.font = `30px "Press Start 2P", monospace`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.strokeStyle = '#000'; ctx.lineWidth = 5;
-  ctx.strokeText(text, W/2, H/2);
+  ctx.strokeText(text, W/2, mainY);
   ctx.fillStyle = color;
-  ctx.fillText(text, W/2, H/2);
+  ctx.fillText(text, W/2, mainY);
+
+  if (subtext) txt(subtext, W/2, H/2 + 22, 7, color);
 
   ctx.globalAlpha = 1.0;
 }
@@ -853,6 +1016,56 @@ function drawInfoPanel() {
 }
 
 // ═══════════════════════════════════════
+//  GAME OVER SCREEN
+// ═══════════════════════════════════════
+function drawGameOver() {
+  frect(0, 0, W, H, '#07071a');
+  for (let y = 0; y < H; y += 4) frect(0, y, W, 2, 'rgba(0,0,0,0.25)');
+
+  const aw = TEAMS[cfg.awayIdx], hm = TEAMS[cfg.homeIdx];
+  const tie = gs.score.away === gs.score.home;
+  const winner = tie ? null : (gs.score.away > gs.score.home ? aw : hm);
+
+  txt('GAME  OVER', W/2, 90, 20, '#FFFF44');
+
+  if (tie) {
+    txt('TIE  GAME!', W/2, 155, 12, '#AAAAAA');
+  } else {
+    const wc = winner.primary === '#FFFFFF' ? '#FFFF88' : winner.primary;
+    txt(winner.name.slice(0,10) + '  WINS!', W/2, 155, 10, wc);
+  }
+
+  // Score box
+  frect(W/2-220, 195, 440, 100, '#0c0c1a');
+  srect(W/2-220, 195, 440, 100, '#333355', 2);
+  const awc = aw.primary === '#FFFFFF' ? '#CCCCCC' : aw.primary;
+  const hmc = hm.primary === '#FFFFFF' ? '#CCCCCC' : hm.primary;
+  txt(aw.name.slice(0,9),  W/2-110, 220, 7, awc);
+  txt(pad2(gs.score.away), W/2-110, 258, 22, '#FFFFFF');
+  txt('-', W/2, 252, 16, '#555577');
+  txt(hm.name.slice(0,9),  W/2+110, 220, 7, hmc);
+  txt(pad2(gs.score.home), W/2+110, 258, 22, '#FFFFFF');
+
+  // Inning grid recap
+  const gx0 = W/2 - cfg.innings * 19, colW = 38;
+  ctx.font = pxFont(5); ctx.textAlign='center'; ctx.textBaseline='middle';
+  for (let i = 0; i < cfg.innings; i++) {
+    const gx = gx0 + i * colW + 19;
+    ctx.fillStyle = '#445566'; ctx.fillText(i+1, gx, 312);
+    ctx.fillStyle = '#AABBCC';
+    const av = gs.inningScores.away[i], hv = gs.inningScores.home[i];
+    ctx.fillText(av !== null ? av : '-', gx, 328);
+    ctx.fillText(hv !== null ? hv : '-', gx, 344);
+  }
+
+  // Restart button
+  const hov = inRect(mouse.x, mouse.y, W/2-130, 385, 260, 54);
+  frect(W/2-130, 385, 260, 54, hov ? '#1a3a1a' : '#0d1a0d');
+  srect(W/2-130, 385, 260, 54, hov ? '#44FF44' : '#226622', 3);
+  txt('PLAY  AGAIN', W/2, 412, 11, hov ? '#44FF44' : '#AAAAAA');
+}
+
+// ═══════════════════════════════════════
 //  PIXEL CURSOR (non-game screens)
 // ═══════════════════════════════════════
 function drawMouseCursor() {
@@ -882,7 +1095,8 @@ function loop() {
     drawField();
     drawPitcher(512, 300, pitching);    // behind ball
     drawBallFlight();
-    drawBatter(512, 472, batting);      // centered at home plate
+    drawBatter(512, 472, batting, !gs.swingAnim.active);
+    drawSwingAnim();
     drawAimCursor();
     drawSwingPrompt();
     drawBatterCursor();
@@ -891,6 +1105,7 @@ function loop() {
     drawResult();
     drawInfoPanel();
   }
+  else if (phase === 'GAME_OVER') { drawGameOver(); drawMouseCursor(); }
 
   requestAnimationFrame(loop);
 }

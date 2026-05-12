@@ -205,7 +205,7 @@ function drawTitle() {
   // Rainbow title
   const TITLE = 'POWER BOARD';
   const PAL = ['#FF4444','#FF8800','#FFFF44','#44FF44','#44AAFF','#FF44FF'];
-  const cw = 37, startX = W/2 - (TITLE.replace(' ','').length * cw) / 2 - 18;
+  const cw = 37, startX = W/2 - (TITLE.replace(/ /g,'').length * cw) / 2;
   let ci = 0;
   for (let i = 0; i < TITLE.length; i++) {
     if (TITLE[i] === ' ') continue;

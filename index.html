@@ -45,9 +45,9 @@ const TEAMS = [
   { id:'CAN', name:'CANADA',         flag:'🇨🇦', primary:'#CC0000', secondary:'#FFFFFF', accent:'#000000' },
 ];
 
-// Strike zone — vertical plane above home plate (slightly wider at bottom for depth cue)
-const SZ = { topY:352, topHW:40, botY:462, botHW:48, cx:512 };
-const PITCH_START = { x:512, y:282 }; // pitcher rubber
+// Strike zone — sits at screen center (Power Pros style: pitcher above, batter below)
+const SZ = { topY:234, topHW:36, botY:350, botHW:44, cx:512 };
+const PITCH_START = { x:512, y:218 }; // pitcher rubber — high & far
 const PITCH_CONTROL = 80;             // max random offset (px); center≈75% strike, edge≈55%
 
 // Pitch types — affect speed, control radius, and ball movement
@@ -137,7 +137,7 @@ function onMove(cx, cy) {
       gs.pitch.aimY = clamp(p.y, 70, H - 20);
     } else {
       // Batter cursor active during flight and batting window
-      gs.batX = clamp(p.x, 40, W - 220);
+      gs.batX = clamp(p.x, 40, W - 40);
       gs.batY = clamp(p.y, 70, H - 40);
     }
   }
@@ -403,7 +403,7 @@ function drawSetupTeam(isHome) {
 //    Batter sprite at (512,472) — feet just above plate
 //
 function drawField() {
-  const HY = 190;  // horizon y
+  const HY = 185;  // horizon y — Power Pros: field compressed, more sky/stadium
 
   // ── 1. SKY ──────────────────────────────
   const sky = ctx.createLinearGradient(0, 0, 0, HY);
@@ -417,7 +417,7 @@ function drawField() {
     g.addColorStop(0, 'rgba(255,242,190,0.28)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(lx-72, 0, 144, HY);
-    frect(lx-4, ly, 8, 20, '#BBBBA8');  // pole top
+    frect(lx-4, ly, 8, 20, '#BBBBA8');
   });
 
   // Crowd silhouette
@@ -429,15 +429,13 @@ function drawField() {
 
   // Outfield wall (green)
   frect(0, HY-4, W, 20, '#1b3e14');
-  frect(0, HY-4, W, 3,  '#0c1c08');  // top shadow
+  frect(0, HY-4, W, 3,  '#0c1c08');
 
   // ── 2. OUTFIELD GRASS ───────────────────
   frect(0, HY+16, W, H - HY - 16, '#1d5c1d');
-  // Perspective stripes: tight near horizon, wide close-up
   const stripeCount = 12;
   for (let i = 0; i < stripeCount; i++) {
     const t0 = i / stripeCount, t1 = (i+1) / stripeCount;
-    // Non-linear: stripes compress toward horizon
     const y0 = lerp(HY+16, H, t0*t0)|0;
     const y1 = lerp(HY+16, H, t1*t1)|0;
     if (i%2 === 1) frect(0, y0, W, y1-y0, '#1b5419');
@@ -448,66 +446,67 @@ function drawField() {
   ctx.strokeStyle = 'rgba(255,255,255,0.50)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(512, 524); ctx.lineTo(62,  HY+16);  // 3B foul line
-  ctx.moveTo(512, 524); ctx.lineTo(962, HY+16);  // 1B foul line
+  ctx.moveTo(512, 502); ctx.lineTo(80,  HY+16);  // 3B foul line
+  ctx.moveTo(512, 502); ctx.lineTo(944, HY+16);  // 1B foul line
   ctx.stroke();
   ctx.restore();
 
   // ── 4. INFIELD DIRT ─────────────────────
-  // Large arc polygon enclosing the diamond, with buffer beyond each base
+  // Tighter polygon — diamond sits higher/more compressed in depth
   ctx.beginPath();
-  ctx.moveTo(466, 494);    // left of home
-  ctx.lineTo(252, 455);    // toward 3B, outer
-  ctx.lineTo(248, 374);    // 3B height, left
-  ctx.lineTo(326, 278);    // upper left, toward 2B
-  ctx.lineTo(512, 263);    // top, above 2B
-  ctx.lineTo(698, 278);    // upper right
-  ctx.lineTo(776, 374);    // 1B height, right
-  ctx.lineTo(772, 455);    // toward 1B, outer
-  ctx.lineTo(558, 494);    // right of home
+  ctx.moveTo(474, 484);    // left of home
+  ctx.lineTo(270, 448);    // toward 3B, outer
+  ctx.lineTo(264, 364);    // 3B height, left
+  ctx.lineTo(339, 252);    // upper left, toward 2B
+  ctx.lineTo(512, 238);    // top, above 2B
+  ctx.lineTo(685, 252);    // upper right
+  ctx.lineTo(760, 364);    // 1B height, right
+  ctx.lineTo(754, 448);    // toward 1B, outer
+  ctx.lineTo(550, 484);    // right of home
   ctx.closePath();
   ctx.fillStyle = '#5c3b1c'; ctx.fill();
 
   // ── 5. INFIELD GRASS DIAMOND ────────────
   ctx.beginPath();
-  ctx.moveTo(512, 482);    // home side
-  ctx.lineTo(706, 413);    // 1B
-  ctx.lineTo(512, 308);    // 2B
-  ctx.lineTo(318, 413);    // 3B
+  ctx.moveTo(512, 472);    // home side
+  ctx.lineTo(679, 345);    // 1B
+  ctx.lineTo(512, 242);    // 2B
+  ctx.lineTo(345, 345);    // 3B
   ctx.closePath();
   ctx.fillStyle = '#236e23'; ctx.fill();
 
-  // Subtle diagonal stripes on infield grass
+  // Subtle diagonal stripes clipped to diamond
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(512, 482); ctx.lineTo(706, 413); ctx.lineTo(512, 308); ctx.lineTo(318, 413); ctx.closePath();
+  ctx.moveTo(512, 472); ctx.lineTo(679, 345); ctx.lineTo(512, 242); ctx.lineTo(345, 345); ctx.closePath();
   ctx.clip();
   ctx.strokeStyle = 'rgba(30,100,30,0.4)'; ctx.lineWidth = 8;
   for (let d = -300; d < 600; d += 26) {
-    ctx.beginPath(); ctx.moveTo(d, 200); ctx.lineTo(d+200, 520); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(d, 180); ctx.lineTo(d+200, 510); ctx.stroke();
   }
   ctx.restore();
 
-  // ── 6. BASE PATHS (dirt strips) ──────────
-  ctx.strokeStyle = '#7a4e28'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+  // ── 6. BASE PATHS ───────────────────────
+  ctx.strokeStyle = '#7a4e28'; ctx.lineWidth = 8; ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(512, 482); ctx.lineTo(706, 413);  // home→1B
-  ctx.moveTo(706, 413); ctx.lineTo(512, 308);  // 1B→2B
-  ctx.moveTo(512, 308); ctx.lineTo(318, 413);  // 2B→3B
-  ctx.moveTo(318, 413); ctx.lineTo(512, 482);  // 3B→home
+  ctx.moveTo(512, 472); ctx.lineTo(679, 345);
+  ctx.moveTo(679, 345); ctx.lineTo(512, 242);
+  ctx.moveTo(512, 242); ctx.lineTo(345, 345);
+  ctx.moveTo(345, 345); ctx.lineTo(512, 472);
   ctx.stroke();
 
   // ── 7. PITCHER'S MOUND ──────────────────
-  ctx.beginPath(); ctx.ellipse(512, 290, 28, 15, 0, 0, Math.PI*2);
+  // Small — appears very far away near horizon
+  ctx.beginPath(); ctx.ellipse(512, 224, 16, 8, 0, 0, Math.PI*2);
   ctx.fillStyle = '#7a4a2a'; ctx.fill();
   ctx.strokeStyle = '#5a3215'; ctx.lineWidth = 1; ctx.stroke();
-  frect(508, 286, 8, 4, '#FFFFFF88');  // pitcher's rubber
+  frect(509, 221, 6, 3, '#FFFFFF88');  // pitcher's rubber
 
   // ── 8. HOME PLATE ───────────────────────
   ctx.beginPath();
-  ctx.moveTo(512, 479); ctx.lineTo(525, 486);
-  ctx.lineTo(525, 495); ctx.lineTo(499, 495);
-  ctx.lineTo(499, 486);
+  ctx.moveTo(512, 469); ctx.lineTo(523, 475);
+  ctx.lineTo(523, 483); ctx.lineTo(501, 483);
+  ctx.lineTo(501, 475);
   ctx.closePath();
   ctx.fillStyle = '#FFFFFF'; ctx.fill();
   ctx.strokeStyle = '#CCCCCC'; ctx.lineWidth = 1; ctx.stroke();
@@ -515,16 +514,16 @@ function drawField() {
   // ── 9. BASES ON FIELD ───────────────────
   drawFieldBases();
 
-  // ── 10. STRIKE ZONE (vertical, floating) ─
+  // ── 10. STRIKE ZONE (screen center — Power Pros style) ──
   drawStrikeZone();
 }
 
 // Draw bases at their perspective positions; highlight when occupied
 function drawFieldBases() {
   [
-    { x:712, y:415, idx:0 },   // 1B
-    { x:512, y:302, idx:1 },   // 2B (slightly smaller — more distant)
-    { x:312, y:415, idx:2 },   // 3B
+    { x:679, y:345, idx:0 },   // 1B
+    { x:512, y:242, idx:1 },   // 2B (smallest — furthest away)
+    { x:345, y:345, idx:2 },   // 3B
   ].forEach(({ x, y, idx }) => {
     const on = gs.bases[idx];
     const sz = idx === 1 ? 10 : 13;  // 2B smaller
@@ -681,7 +680,7 @@ function drawPitcher(cx, cy, team) {
   const P = team.secondary === '#FFFFFF' ? '#DDDDEE' : team.secondary;
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.scale(0.68, 0.68);  // small — far end of field
+  ctx.scale(0.50, 0.50);  // very small — far end of field (Power Pros style)
   pixelPlayer(team.primary, team.primary, P, false);
   ctx.restore();
 }
@@ -690,7 +689,7 @@ function drawBatter(cx, cy, team, showBat=true) {
   const P = team.secondary === '#FFFFFF' ? '#DDDDEE' : team.secondary;
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.scale(1.45, 1.45);
+  ctx.scale(1.65, 1.65);
   pixelPlayer(team.primary, team.primary, P, true, showBat);
   ctx.restore();
 }
@@ -1120,8 +1119,8 @@ function drawSwingAnim() {
   const et = easeOut(t);
 
   ctx.save();
-  ctx.translate(512, 472);
-  ctx.scale(1.45, 1.45);
+  ctx.translate(628, 490);
+  ctx.scale(1.65, 1.65);
 
   // Bat sweeps from rest (upper-left) to follow-through (upper-right)
   const pivX = 7, pivY = -23;
@@ -1227,15 +1226,15 @@ function drawInfoPanel() {
 function drawFielders() {
   const fielding = gs.half==='TOP' ? TEAMS[cfg.homeIdx] : TEAMS[cfg.awayIdx];
   const fc = fielding.primary === '#FFFFFF' ? '#CCCCCC' : fielding.primary;
-  // Outfield (LF, CF, RF) — small, distant
-  [[208, 250], [512, 226], [816, 250]].forEach(([fx, fy]) => {
-    ctx.beginPath(); ctx.arc(fx, fy, 4, 0, Math.PI*2);
+  // Outfield (LF, CF, RF) — tiny, near horizon
+  [[216, 216], [512, 204], [808, 216]].forEach(([fx, fy]) => {
+    ctx.beginPath(); ctx.arc(fx, fy, 3, 0, Math.PI*2);
     ctx.fillStyle = fc + '99'; ctx.fill();
     ctx.strokeStyle = '#FFFFFF33'; ctx.lineWidth = 1; ctx.stroke();
   });
-  // Infield (SS, 2B) — slightly larger
-  [[434, 370], [590, 370]].forEach(([fx, fy]) => {
-    ctx.beginPath(); ctx.arc(fx, fy, 5, 0, Math.PI*2);
+  // Infield (SS between 3B-2B, 2B fielder between 2B-1B)
+  [[436, 305], [588, 305]].forEach(([fx, fy]) => {
+    ctx.beginPath(); ctx.arc(fx, fy, 4, 0, Math.PI*2);
     ctx.fillStyle = fc + 'AA'; ctx.fill();
     ctx.strokeStyle = '#FFFFFF44'; ctx.lineWidth = 1; ctx.stroke();
   });
@@ -1452,10 +1451,10 @@ function loop() {
     const batting  = gs.half==='TOP' ? TEAMS[cfg.awayIdx]  : TEAMS[cfg.homeIdx];
     drawField();
     drawFielders();
-    drawPitcher(512, 282, pitching);
+    drawPitcher(512, 218, pitching);
     drawBallFlight();
     drawHitFlight();
-    drawBatter(512, 472, batting, !gs.swingAnim.active);
+    drawBatter(628, 490, batting, !gs.swingAnim.active);
     drawSwingAnim();
     drawAimCursor();
     drawSwingPrompt();

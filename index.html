@@ -50,6 +50,13 @@ const SZ = { topY:352, topHW:40, botY:462, botHW:48, cx:512 };
 const PITCH_START = { x:512, y:282 }; // pitcher rubber
 const PITCH_CONTROL = 80;             // max random offset (px); center≈75% strike, edge≈55%
 
+// Pitch types — affect speed, control radius, and ball movement
+const PITCH_TYPES = [
+  { id:'FAST',   label:'FAST',   spd:0.028, ctrl:60,  col:'#FFFFFF', desc:'SPD+ CTRL+' },
+  { id:'BREAK',  label:'BREAK',  spd:0.021, ctrl:88,  col:'#88CCFF', desc:'CURVES' },
+  { id:'CHANGE', label:'CHANGE', spd:0.013, ctrl:105, col:'#FFAA44', desc:'SLOW DROP' },
+];
+
 // ═══════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════
@@ -72,6 +79,7 @@ const gs = {
     actualX: SZ.cx, actualY: (SZ.topY+SZ.botY)/2, // target + random offset
     t: 0,      // flight progress 0→1
     speed: 0.020,
+    curve: 0, dropArc: 22,  // Phase 5: lateral break and vertical drop
   },
   result: { text:'', color:'#FFFFFF', timer:0, maxTimer:0, subtext:'' },
   // Phase 3
@@ -81,6 +89,10 @@ const gs = {
   // Phase 4
   halfChange: { line1:'', line2:'', line3:'', col:'#FFFFFF', timer:0, maxTimer:0, gameOver:false },
   runFlash:   { runs:0, timer:0, side:'away' },
+  // Phase 5
+  pitchType: 0,
+  hitFlight: { active:false, sx:0, sy:0, tx:0, ty:0, t:0, dur:60, arcH:80, type:'' },
+  walkOffPending: false,
 };
 
 // ═══════════════════════════════════════
@@ -166,7 +178,9 @@ function handleClick({ x, y }) {
   }
   else if (phase === 'GAME') {
     if (gs.gamePhase === 'PITCH_AIM') {
-      setPitch(gs.pitch.aimX, gs.pitch.aimY);
+      const pt = pitchTypeButtonAt(x, y);
+      if (pt !== -1) { gs.pitchType = pt; }
+      else { setPitch(gs.pitch.aimX, gs.pitch.aimY); }
     } else if (gs.gamePhase === 'BATTING_WINDOW') {
       doSwing();
     }
@@ -188,6 +202,17 @@ function teamCardAt(x, y) {
   return -1;
 }
 
+function pitchTypeButtonAt(x, y) {
+  const bw = 80, bh = 28, gap = 8;
+  const totalW = PITCH_TYPES.length * (bw + gap) - gap;
+  const startX = W/2 - totalW / 2;
+  const by = H - 54;
+  for (let i = 0; i < PITCH_TYPES.length; i++) {
+    if (inRect(x, y, startX + i * (bw + gap), by, bw, bh)) return i;
+  }
+  return -1;
+}
+
 function startGame() {
   gs.inning = 1; gs.half = 'TOP';
   gs.outs = 0; gs.balls = 0; gs.strikes = 0;
@@ -205,6 +230,9 @@ function startGame() {
   gs.halfStartScore = { away:0, home:0 };
   gs.halfChange = { line1:'', line2:'', line3:'', col:'#FFFFFF', timer:0, maxTimer:0, gameOver:false };
   gs.runFlash   = { runs:0, timer:0, side:'away' };
+  gs.pitchType  = 0;
+  gs.hitFlight  = { active:false, sx:0, sy:0, tx:0, ty:0, t:0, dur:60, arcH:80, type:'' };
+  gs.walkOffPending = false;
   phase = 'GAME';
 }
 
@@ -738,14 +766,17 @@ function isInStrikeZone(x, y) {
 }
 
 function setPitch(tx, ty) {
+  const pt = PITCH_TYPES[gs.pitchType];
   gs.pitch.targetX = tx;
   gs.pitch.targetY = ty;
-  // Random offset controlled by PITCH_CONTROL
   const angle = Math.random() * Math.PI * 2;
-  const dist  = Math.random() * PITCH_CONTROL;
+  const dist  = Math.random() * pt.ctrl;
   gs.pitch.actualX = tx + Math.cos(angle) * dist;
   gs.pitch.actualY = ty + Math.sin(angle) * dist;
-  gs.pitch.t = 0;
+  gs.pitch.t      = 0;
+  gs.pitch.speed  = pt.spd;
+  gs.pitch.curve  = gs.pitchType === 1 ? (Math.random() * 30 - 15) : 0;
+  gs.pitch.dropArc = gs.pitchType === 2 ? 40 : 22;
   gs.gamePhase = 'BALL_FLIGHT';
 }
 
@@ -789,14 +820,20 @@ function doSwing() {
   if (qr > 0.90) {
     gs.lastResultType = 'HR';
     advanceRunners(4);
+    setHitFlight('HR');
+    if (isWalkOff()) gs.walkOffPending = true;
     showResult('HOME  RUN!!', '#FFD700', 150, 'PERFECT  CONTACT!');
   } else if (qr > 0.68) {
     gs.lastResultType = '2B';
     advanceRunners(2);
+    setHitFlight('2B');
+    if (isWalkOff()) gs.walkOffPending = true;
     showResult('DOUBLE!', '#44EEFF', 110, timingLabel + '  TIMING');
   } else if (qr > 0.43) {
     gs.lastResultType = '1B';
     advanceRunners(1);
+    setHitFlight('1B');
+    if (isWalkOff()) gs.walkOffPending = true;
     showResult('SINGLE!', '#44FF88', 100, timingLabel + '  TIMING');
   } else if (qr > 0.18) {
     gs.lastResultType = 'FOUL';
@@ -830,6 +867,7 @@ function resolveNoPitch() {
     if (gs.balls >= 4) {
       gs.balls=0; gs.strikes=0;
       walkBatter();
+      if (isWalkOff()) gs.walkOffPending = true;
       showResult('WALK!', '#44AAFF', 100, 'BASE  ON  BALLS');
     } else {
       showResult('BALL!', '#44FF44', 80, '');
@@ -848,6 +886,12 @@ function showResult(text, color, frames, subtext='') {
 
 function nextPitch() {
   gs.swingAnim = { active:false, t:0, hitQuality:0 };
+  if (gs.walkOffPending) {
+    const idx = gs.inning - 1;
+    gs.inningScores.home[idx] = gs.score.home - gs.halfStartScore.home;
+    phase = 'GAME_OVER';
+    return;
+  }
   if (gs.outs >= 3) { startHalfChange(); return; }
   gs.pitch.t = 0;
   gs.pitch.aimX = SZ.cx;
@@ -962,6 +1006,10 @@ function updateGame() {
     if (gs.swingAnim.t >= 1.0) gs.swingAnim.active = false;
   }
   if (gs.runFlash.timer > 0) gs.runFlash.timer--;
+  if (gs.hitFlight.active) {
+    gs.hitFlight.t = Math.min(1.0, gs.hitFlight.t + 1 / gs.hitFlight.dur);
+    if (gs.hitFlight.t >= 1.0) gs.hitFlight.active = false;
+  }
 }
 
 // ═══════════════════════════════════════
@@ -992,10 +1040,8 @@ function drawAimCursor() {
   // Zone label
   txt(inZone ? 'IN  ZONE' : 'BALL', ax, ay - 26, 5, col);
 
-  // Bottom instruction, blinking
-  if ((tick >> 4) % 2 === 0) {
-    txt('CLICK  TO  PITCH', W/2, H - 18, 7, '#FFFF44');
-  }
+  // Pitch type selector + click hint
+  drawPitchTypeHUD();
 }
 
 // ═══════════════════════════════════════
@@ -1005,8 +1051,9 @@ function drawBallFlight() {
   const gp = gs.gamePhase;
   if (gp === 'PITCH_AIM') return;
 
-  const { t, actualX, actualY, targetX, targetY } = gs.pitch;
+  const { t, actualX, actualY, targetX, targetY, curve, dropArc } = gs.pitch;
   const { x: sx, y: sy } = PITCH_START;
+  const pt = PITCH_TYPES[gs.pitchType];
 
   // Ghost of aimed target
   ctx.beginPath();
@@ -1015,25 +1062,32 @@ function drawBallFlight() {
   ctx.lineWidth = 1; ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
 
   if (gp === 'SHOW_RESULT') {
-    // Ball frozen at landing spot
-    drawBall(actualX, actualY, 13);
-    // Landing dot: green = strike, red = ball
-    const inZ = isInStrikeZone(actualX, actualY);
-    ctx.beginPath(); ctx.arc(actualX, actualY + 14, 5, 0, Math.PI*2);
-    ctx.fillStyle = inZ ? '#44FF44' : '#FF4444'; ctx.fill();
+    // Hide frozen ball if hit-flight animation took over
+    if (!gs.hitFlight.active) {
+      drawBall(actualX, actualY, 13);
+      const inZ = isInStrikeZone(actualX, actualY);
+      ctx.beginPath(); ctx.arc(actualX, actualY + 14, 5, 0, Math.PI*2);
+      ctx.fillStyle = inZ ? '#44FF44' : '#FF4444'; ctx.fill();
+    }
     return;
   }
 
-  // Parabolic arc: ball rises slightly then drops
-  const bx = lerp(sx, actualX, t);
-  const by = lerp(sy, actualY, t) - 22 * t * (1 - t);
+  // Parabolic arc with pitch-type curve and drop
+  const bx = lerp(sx, actualX, t) + curve * t * (1 - t) * 4;
+  const by = lerp(sy, actualY, t) - dropArc * t * (1 - t);
   const radius = lerp(3, 13, t * t);
+
+  // Pitch type glow ring (early flight only)
+  if (t < 0.5) {
+    ctx.beginPath(); ctx.arc(bx, by, radius + 4, 0, Math.PI*2);
+    ctx.strokeStyle = pt.col + '55'; ctx.lineWidth = 3; ctx.stroke();
+  }
 
   // Trail
   for (let i = 5; i >= 1; i--) {
     const tt = Math.max(0, t - i * 0.038);
-    const tx2 = lerp(sx, actualX, tt);
-    const ty2 = lerp(sy, actualY, tt) - 22 * tt * (1 - tt);
+    const tx2 = lerp(sx, actualX, tt) + curve * tt * (1 - tt) * 4;
+    const ty2 = lerp(sy, actualY, tt) - dropArc * tt * (1 - tt);
     const tr = lerp(2, 10, tt * tt);
     ctx.beginPath(); ctx.arc(tx2, ty2, tr, 0, Math.PI * 2);
     ctx.fillStyle = `rgba(255,255,200,${(6-i) * 0.028})`;
@@ -1306,6 +1360,83 @@ function drawMouseCursor() {
 }
 
 // ═══════════════════════════════════════
+//  PHASE 5: WALK-OFF / HIT FLIGHT / PITCH HUD
+// ═══════════════════════════════════════
+function isWalkOff() {
+  if (gs.half !== 'BOT') return false;
+  if (gs.inning < cfg.innings) return false;
+  return gs.score.home > gs.score.away;
+}
+
+function setHitFlight(type) {
+  const cx = gs.pitch.actualX, cy = gs.pitch.actualY;
+  let tx, ty, dur, arcH;
+  const goRight = cx > W/2;
+  if (type === 'HR') {
+    tx = cx + (goRight ? 190 : -190); ty = 175; dur = 90; arcH = 120;
+  } else if (type === '2B') {
+    tx = cx + (goRight ? 110 : -110); ty = 235; dur = 65; arcH = 72;
+  } else {
+    tx = cx + (goRight ? 65 : -65);   ty = 315; dur = 48; arcH = 42;
+  }
+  gs.hitFlight = { active:true, sx:cx, sy:cy, tx, ty, t:0, dur, arcH, type };
+}
+
+function drawHitFlight() {
+  if (!gs.hitFlight.active) return;
+  const { sx, sy, tx, ty, t, arcH, type } = gs.hitFlight;
+  const et = easeOut(t);
+  const bx = lerp(sx, tx, et);
+  const by = lerp(sy, ty, et) - arcH * t * (1 - t) * 4;
+  const radius = lerp(13, type === 'HR' ? 10 : 8, t);
+  const alpha = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1.0;
+
+  ctx.globalAlpha = alpha;
+
+  // Trail
+  for (let i = 4; i >= 1; i--) {
+    const tt = Math.max(0, t - i * 0.06);
+    const et2 = easeOut(tt);
+    const tx2 = lerp(sx, tx, et2);
+    const ty2 = lerp(sy, ty, et2) - arcH * tt * (1 - tt) * 4;
+    ctx.beginPath(); ctx.arc(tx2, ty2, lerp(8, 4, tt), 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,220,80,${(5-i)*0.07})`; ctx.fill();
+  }
+
+  drawBall(bx, by, radius);
+
+  if (type === 'HR') {
+    ctx.beginPath(); ctx.arc(bx, by, radius + 9, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(255,200,50,${alpha * 0.55})`; ctx.lineWidth = 3; ctx.stroke();
+  }
+
+  ctx.globalAlpha = 1.0;
+}
+
+function drawPitchTypeHUD() {
+  const bw = 80, bh = 28, gap = 8;
+  const totalW = PITCH_TYPES.length * (bw + gap) - gap;
+  const startX = W/2 - totalW / 2;
+  const by = H - 54;
+
+  txt('PITCH  TYPE:', W/2, by - 12, 5, '#888899');
+
+  PITCH_TYPES.forEach((pt, i) => {
+    const bx = startX + i * (bw + gap);
+    const sel = i === gs.pitchType;
+    const hov = inRect(mouse.x, mouse.y, bx, by, bw, bh);
+    frect(bx, by, bw, bh, sel ? '#141e14' : '#0c0c1e');
+    srect(bx, by, bw, bh, sel ? pt.col : hov ? pt.col + '88' : '#333355', sel ? 3 : 2);
+    txt(pt.label, bx + bw/2, by + 10, 6, sel ? pt.col : '#AAAAAA');
+    txt(pt.desc,  bx + bw/2, by + 22, 4, sel ? '#FFFFFF' : '#555577');
+  });
+
+  if ((tick >> 4) % 2 === 0) {
+    txt('CLICK  TO  PITCH', W/2, H - 18, 7, '#FFFF44');
+  }
+}
+
+// ═══════════════════════════════════════
 //  MAIN LOOP
 // ═══════════════════════════════════════
 function loop() {
@@ -1323,6 +1454,7 @@ function loop() {
     drawFielders();
     drawPitcher(512, 282, pitching);
     drawBallFlight();
+    drawHitFlight();
     drawBatter(512, 472, batting, !gs.swingAnim.active);
     drawSwingAnim();
     drawAimCursor();

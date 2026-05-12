@@ -1,257 +1,550 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
-
 <head>
-  <meta charset="UTF-8" />
-  <title>棒球棋 V5: 經典還原版</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<title>POWER BOARD - WBC</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#000;
+  display:flex; justify-content:center; align-items:center;
+  width:100vw; height:100vh; overflow:hidden;
+  touch-action:none;
+}
+canvas {
+  display:block;
+  image-rendering:pixelated;
+  image-rendering:crisp-edges;
+  cursor:none;
+}
+</style>
 </head>
-
 <body>
+<canvas id="c"></canvas>
+<script>
+// ═══════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════
+const W = 1024, H = 576;
 
-  <div id="start-screen" class="overlay-screen">
-    <div class="title-logo">BASEBALL BATTLE</div>
-    <button class="menu-btn primary" onclick="goToSetup()">開始對戰</button>
-    <button class="menu-btn" onclick="showGallery()">卡牌圖鑑</button>
-  </div>
+const TEAMS = [
+  { id:'JPN', name:'JAPAN',          flag:'🇯🇵', primary:'#003288', secondary:'#FFFFFF', accent:'#CC0000' },
+  { id:'USA', name:'USA',            flag:'🇺🇸', primary:'#002868', secondary:'#FFFFFF', accent:'#BF0A30' },
+  { id:'DOM', name:'DOMINICA',       flag:'🇩🇴', primary:'#002D62', secondary:'#FFFFFF', accent:'#CE1126' },
+  { id:'VEN', name:'VENEZUELA',      flag:'🇻🇪', primary:'#CF142B', secondary:'#FFFFFF', accent:'#003893' },
+  { id:'KOR', name:'KOREA',          flag:'🇰🇷', primary:'#C60C30', secondary:'#FFFFFF', accent:'#003478' },
+  { id:'MEX', name:'MEXICO',         flag:'🇲🇽', primary:'#006847', secondary:'#FFFFFF', accent:'#CE1126' },
+  { id:'TPE', name:'CHINESE TAIPEI', flag:'🇹🇼', primary:'#003580', secondary:'#FFFFFF', accent:'#CE1126' },
+  { id:'PUR', name:'PUERTO RICO',    flag:'🇵🇷', primary:'#CC0000', secondary:'#FFFFFF', accent:'#002868' },
+  { id:'NED', name:'NETHERLANDS',    flag:'🇳🇱', primary:'#FF6600', secondary:'#FFFFFF', accent:'#003399' },
+  { id:'AUS', name:'AUSTRALIA',      flag:'🇦🇺', primary:'#FFCD00', secondary:'#00843D', accent:'#000000' },
+  { id:'ITA', name:'ITALY',          flag:'🇮🇹', primary:'#003399', secondary:'#FFFFFF', accent:'#009246' },
+  { id:'CUB', name:'CUBA',           flag:'🇨🇺', primary:'#002A8F', secondary:'#FFFFFF', accent:'#CC0001' },
+  { id:'PAN', name:'PANAMA',         flag:'🇵🇦', primary:'#CC0000', secondary:'#FFFFFF', accent:'#003399' },
+  { id:'CAN', name:'CANADA',         flag:'🇨🇦', primary:'#CC0000', secondary:'#FFFFFF', accent:'#000000' },
+];
 
-  <div id="gallery-screen" class="overlay-screen hidden">
-    <div style="display:flex; justify-content:space-between; width:90%; max-width:800px; margin-bottom:10px;">
-      <h2 style="color:var(--accent-color);">卡牌圖鑑</h2>
-      <button class="menu-btn" style="width:100px; padding:5px; font-size:1rem;" onclick="closeGallery()">返回</button>
-    </div>
-    <div class="gallery-grid" id="gallery-content"></div>
-  </div>
+// Strike zone trapezoid
+const SZ = { topY:355, topHW:44, botY:455, botHW:66, cx:512 };
 
-  <div id="setup-screen" class="overlay-screen hidden">
-    <div class="setup-container">
-      <h2 style="margin-bottom:20px;">賽前準備</h2>
+// ═══════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════
+let phase = 'TITLE'; // TITLE | SETUP_INNING | SETUP_AWAY | SETUP_HOME | GAME
 
-      <div id="step-color">
-        <div style="display:flex; justify-content:space-between;">
-          <div style="text-align:center;">
-            <div>P1 (客隊)</div>
-            <div class="color-picker-row" id="p1-colors"></div>
-          </div>
-          <div style="width:2px; background:#444;"></div>
-          <div style="text-align:center;">
-            <div>P2 (主隊)</div>
-            <div class="color-picker-row" id="p2-colors"></div>
-          </div>
-        </div>
-        <button class="menu-btn primary" onclick="goToInitiative()">確認顏色</button>
-      </div>
+const cfg = { innings:3, awayIdx:-1, homeIdx:-1 };
 
-      <div id="step-initiative" style="display:none;">
-        <h3>比大小決定主客場</h3>
-        <p style="font-size:0.8rem; color:#aaa;">數字大者為主隊(後攻)</p>
-        <div class="initiative-area">
-          <div class="player-setup-box">
-            <div>P1</div>
-            <div class="roll-num" id="p1-roll">-</div>
-            <button class="menu-btn" style="width:80px; font-size:0.8rem;" id="btn-roll-p1"
-              onclick="rollInitiative(1)">ROLL</button>
-          </div>
-          <div style="font-size:1.5rem; font-weight:bold;">VS</div>
-          <div class="player-setup-box">
-            <div>P2</div>
-            <div class="roll-num" id="p2-roll">-</div>
-            <button class="menu-btn" style="width:80px; font-size:0.8rem;" id="btn-roll-p2"
-              onclick="rollInitiative(2)">ROLL</button>
-          </div>
-        </div>
-        <div id="initiative-result" style="height:30px; color:var(--accent-color); font-weight:bold;"></div>
-        <button class="menu-btn primary" id="btn-go-draw" style="display:none;" onclick="goToDraw()">前往抽卡</button>
-      </div>
+const gs = {
+  inning:1, half:'TOP',
+  outs:0, balls:0, strikes:0,
+  bases:[false,false,false],
+  score:{ away:0, home:0 },
+  inningScores:{ away:[], home:[] },
+  batX: W/2, batY: H/2,
+};
 
-      <div id="step-draw" style="display:none;">
-        <h3>抽取本場特殊卡 (各3張)</h3>
-        <div style="display:flex; justify-content:center; gap:20px; margin:20px 0;">
-          <div class="card-preview"
-            style="width:120px; height:160px; justify-content:center; cursor:pointer; background:#444;"
-            onclick="drawCardsAnimation()">
-            <div style="font-size:3rem;">🎁</div>
-            <div>點擊抽卡</div>
-          </div>
-        </div>
-        <div id="draw-result-area" style="display:none;">
-          <div style="font-size:0.9rem; margin-bottom:10px;">已獲得卡牌：</div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; text-align:left;">
-            <div>
-              <div style="color:#d32f2f; font-size:0.8rem;">客隊手牌</div>
-              <div id="vis-hand-list" style="font-size:0.8rem; color:#aaa;"></div>
-            </div>
-            <div>
-              <div style="color:#1976d2; font-size:0.8rem;">主隊手牌</div>
-              <div id="home-hand-list" style="font-size:0.8rem; color:#aaa;"></div>
-            </div>
-          </div>
-          <button class="menu-btn primary" style="margin-top:20px;" onclick="startGameFromSetup()">開始比賽！</button>
-        </div>
-      </div>
-    </div>
-  </div>
+// ═══════════════════════════════════════
+//  CANVAS SETUP
+// ═══════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width = W; canvas.height = H;
 
-  <!-- 新版跑燈機台 -->
-  <div id="roll-overlay" class="overlay-screen hidden">
-    <div class="machine-container">
-      <div class="machine-title">RESULT TABLE</div>
-      <div class="machine-dice-area">
-        <div class="machine-die" id="m-d1">?</div>
-        <div class="machine-die" id="m-d2">?</div>
-      </div>
-      <!-- 21格結果表 -->
-      <div class="result-grid-v2" id="machine-grid">
-        <!-- Generated by JS -->
-      </div>
-      <div style="margin-top:15px; color:#aaa; font-size:0.8rem;">等待跑燈停止...</div>
-    </div>
-  </div>
+let scale = 1, offX = 0, offY = 0;
 
-  <div class="game-wrapper blur" id="main-game">
-    <header class="scoreboard">
-      <div class="team-info">
-        <div class="team-logo vis-logo">V</div>
-        <div style="font-weight:bold; color:var(--vis-color)">VISITOR</div>
-      </div>
-      <div class="score-grid">
-        <div class="cell header"></div>
-        <div class="cell header">1</div>
-        <div class="cell header">2</div>
-        <div class="cell header">3</div>
-        <div class="cell header">4</div>
-        <div class="cell header">5</div>
-        <div class="cell header">6</div>
-        <div class="cell header">7</div>
-        <div class="cell header">8</div>
-        <div class="cell header">9</div>
-        <div class="cell header total">R</div>
+function resize() {
+  scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  offX = (window.innerWidth  - W * scale) / 2;
+  offY = (window.innerHeight - H * scale) / 2;
+  canvas.style.width  = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
 
-        <div class="cell team-name">VIS</div>
-        <div class="cell active-score">0</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell total" id="score-vis-total">0</div>
+function toL(cx, cy) {
+  return { x:(cx - offX) / scale, y:(cy - offY) / scale };
+}
 
-        <div class="cell team-name">HOME</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell">.</div>
-        <div class="cell total" id="score-home-total">0</div>
-      </div>
-      <div class="status-panel">
-        <div class="bso-row">
-          <span>B</span>
-          <div class="lights">
-            <div class="light" id="light-b1"></div>
-            <div class="light" id="light-b2"></div>
-            <div class="light" id="light-b3"></div>
-          </div>
-        </div>
-        <div class="bso-row">
-          <span>S</span>
-          <div class="lights">
-            <div class="light" id="light-s1"></div>
-            <div class="light" id="light-s2"></div>
-          </div>
-        </div>
-        <div class="bso-row">
-          <span>O</span>
-          <div class="lights">
-            <div class="light" id="light-o1"></div>
-            <div class="light" id="light-o2"></div>
-          </div>
-        </div>
-        <div id="inning-display" style="margin-top:4px; font-size:0.9rem; color:#fff;">1局上</div>
-      </div>
-    </header>
+// ═══════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════
+const mouse = { x: W/2, y: H/2 };
 
-    <main class="main-area">
-      <section class="field-container">
-        <div class="field">
-          <div class="mound"></div>
-          <div class="infield-diamond rotated">
-            <div class="base second"></div>
-            <div class="base first"></div>
-            <div class="base third"></div>
-            <div class="base home"></div>
-          </div>
+function onMove(cx, cy) {
+  const p = toL(cx, cy);
+  mouse.x = p.x; mouse.y = p.y;
+  if (phase === 'GAME') {
+    gs.batX = clamp(p.x, 40, W - 40);
+    gs.batY = clamp(p.y, 64, H - 40);
+  }
+}
+function onClick(cx, cy) { handleClick(toL(cx, cy)); }
 
-          <!-- Defensive Players -->
-          <div class="fielder-dot" id="f-P"></div>
-          <div class="fielder-dot" id="f-C"></div>
-          <div class="fielder-dot" id="f-B1"></div>
-          <div class="fielder-dot" id="f-B2"></div>
-          <div class="fielder-dot" id="f-B3"></div>
-          <div class="fielder-dot" id="f-SS"></div>
-          <div class="fielder-dot" id="f-LF"></div>
-          <div class="fielder-dot" id="f-CF"></div>
-          <div class="fielder-dot" id="f-RF"></div>
+canvas.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+canvas.addEventListener('mousedown', e => onClick(e.clientX, e.clientY));
+canvas.addEventListener('touchmove', e => { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive:false });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); onClick(e.touches[0].clientX, e.touches[0].clientY); }, { passive:false });
 
-          <div class="baseball" id="ball"></div>
-          <div class="runner-dot" id="runner-entity-0"></div>
-          <div class="runner-dot" id="runner-entity-1"></div>
-          <div class="runner-dot" id="runner-entity-2"></div>
-          <div class="runner-dot" id="runner-entity-3"></div>
-        </div>
-      </section>
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-      <section class="interaction-panel">
-        <div class="battle-slots">
-          <div class="slot-box" id="slot-atk">
-            <div class="slot-icon" id="icon-atk">⚔️</div>
-            <div class="slot-label">攻方 ATK</div>
-            <div class="slot-name" id="name-atk">等待選擇</div>
-          </div>
-          <div style="font-weight:900; font-style:italic; color:#555; font-size:1.5rem;">VS</div>
-          <div class="slot-box" id="slot-def">
-            <div class="slot-icon" id="icon-def">🛡️</div>
-            <div class="slot-label">守方 DEF</div>
-            <div class="slot-name" id="name-def">等待選擇</div>
-          </div>
-        </div>
+// ═══════════════════════════════════════
+//  CLICK DISPATCH
+// ═══════════════════════════════════════
+function handleClick({ x, y }) {
+  if (phase === 'TITLE') {
+    if (inRect(x, y, W/2-130, 298, 260, 54)) phase = 'SETUP_INNING';
+  }
+  else if (phase === 'SETUP_INNING') {
+    [3, 6, 9].forEach((n, i) => {
+      if (inRect(x, y, W/2 - 200 + i*200 - 70, H/2 - 35, 140, 70)) {
+        cfg.innings = n; phase = 'SETUP_AWAY';
+      }
+    });
+  }
+  else if (phase === 'SETUP_AWAY') {
+    const i = teamCardAt(x, y);
+    if (i !== -1) { cfg.awayIdx = i; phase = 'SETUP_HOME'; }
+  }
+  else if (phase === 'SETUP_HOME') {
+    const i = teamCardAt(x, y);
+    if (i !== -1 && i !== cfg.awayIdx) { cfg.homeIdx = i; startGame(); }
+  }
+}
 
-        <div class="decks-container">
-          <div class="deck-column" id="deck-col-vis">
-            <div class="deck-header" style="color:var(--vis-color)">客隊手牌</div>
-            <div id="vis-cards-area"></div>
-          </div>
-          <div class="deck-column" id="deck-col-home">
-            <div class="deck-header" style="color:var(--home-color)">主隊手牌</div>
-            <div id="home-cards-area"></div>
-          </div>
-        </div>
+function inRect(x, y, rx, ry, rw, rh) {
+  return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
+}
 
-        <div class="controls">
-          <div class="dice-display">
-            <div class="die" id="d1">?</div>
-            <div class="die" id="d2">?</div>
-          </div>
-          <div class="status-text">
-            <div class="main-status" id="main-status">比賽開始</div>
-            <div class="sub-status" id="sub-status">請雙方選擇卡牌或直接投球</div>
-          </div>
-          <button class="play-btn" id="play-btn" onclick="startTurn()">擲骰子 (ROLL)</button>
-        </div>
-      </section>
-    </main>
-  </div>
+function teamCardAt(x, y) {
+  const COLS=7, CW=122, CH=80, GAP=8;
+  const sx = (W - (COLS*CW + (COLS-1)*GAP)) / 2;
+  const sy = 140;
+  for (let i = 0; i < TEAMS.length; i++) {
+    const c = i % COLS, r = Math.floor(i / COLS);
+    if (inRect(x, y, sx + c*(CW+GAP), sy + r*(CH+GAP), CW, CH)) return i;
+  }
+  return -1;
+}
 
-  <script src="constants.js"></script>
-  <script src="main.js"></script>
+function startGame() {
+  gs.inning = 1; gs.half = 'TOP';
+  gs.outs = 0; gs.balls = 0; gs.strikes = 0;
+  gs.bases = [false, false, false];
+  gs.score.away = 0; gs.score.home = 0;
+  gs.inningScores.away = Array(cfg.innings).fill(null);
+  gs.inningScores.home = Array(cfg.innings).fill(null);
+  gs.batX = W/2; gs.batY = H/2;
+  phase = 'GAME';
+}
+
+// ═══════════════════════════════════════
+//  DRAW HELPERS
+// ═══════════════════════════════════════
+function pxFont(sz) { return `${sz}px "Press Start 2P", monospace`; }
+
+function txt(s, x, y, sz, col, align='center') {
+  ctx.font = pxFont(sz);
+  ctx.fillStyle = col;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(s, x, y);
+}
+
+function frect(x, y, w, h, col) {
+  ctx.fillStyle = col;
+  ctx.fillRect(x|0, y|0, w|0, h|0);
+}
+
+function srect(x, y, w, h, col, lw=2) {
+  ctx.strokeStyle = col;
+  ctx.lineWidth = lw;
+  ctx.strokeRect((x|0)+.5, (y|0)+.5, w|0, h|0);
+}
+
+// ═══════════════════════════════════════
+//  TITLE SCREEN
+// ═══════════════════════════════════════
+let tick = 0;
+
+function drawTitle() {
+  tick++;
+  frect(0, 0, W, H, '#07071a');
+
+  // Stars
+  for (let i = 0; i < 90; i++) {
+    const sx = (i*137+17) % W, sy = (i*91+33) % (H-70);
+    if (Math.sin(tick*0.05 + i) > 0.6) frect(sx, sy, 2, 2, '#FFFFFF');
+  }
+
+  // Scanlines
+  for (let y = 0; y < H; y += 4) frect(0, y, W, 2, 'rgba(0,0,0,0.25)');
+
+  // Rainbow title
+  const TITLE = 'POWER BOARD';
+  const PAL = ['#FF4444','#FF8800','#FFFF44','#44FF44','#44AAFF','#FF44FF'];
+  const cw = 37, startX = W/2 - (TITLE.replace(' ','').length * cw) / 2 - 18;
+  let ci = 0;
+  for (let i = 0; i < TITLE.length; i++) {
+    if (TITLE[i] === ' ') continue;
+    ctx.font = `34px "Press Start 2P", monospace`;
+    ctx.fillStyle = PAL[(ci + (tick>>3)) % PAL.length];
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(TITLE[i], startX + ci * cw, 120);
+    ci++;
+  }
+
+  txt('WBC  EDITION', W/2, 172, 10, '#8888AA');
+
+  // Pixel baseball
+  drawBall(W/2, 248, 26);
+
+  // Start button blink
+  if ((tick >> 5) % 2 === 0) {
+    frect(W/2-130, 298, 260, 54, '#AA1100');
+    srect(W/2-130, 298, 260, 54, '#FF6644', 3);
+    txt('PRESS  START', W/2, 325, 11, '#FFFFFF');
+  }
+
+  txt('v1.0', W/2, H-18, 6, '#333355');
+}
+
+function drawBall(cx, cy, r) {
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.fillStyle = '#EEEEEE'; ctx.fill();
+  ctx.strokeStyle = '#CC2200'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx-r*.18, cy, r*.72, -.55, .55); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx+r*.18, cy, r*.72, Math.PI-.55, Math.PI+.55); ctx.stroke();
+}
+
+// ═══════════════════════════════════════
+//  SETUP: INNING
+// ═══════════════════════════════════════
+function drawSetupInning() {
+  frect(0, 0, W, H, '#07071a');
+  txt('SELECT  INNINGS', W/2, 90, 15, '#FFFF44');
+  txt('HOW MANY INNINGS?', W/2, 148, 8, '#888899');
+
+  [
+    { n:3, label:'3  INN', desc:'QUICK GAME' },
+    { n:6, label:'6  INN', desc:'NORMAL GAME' },
+    { n:9, label:'9  INN', desc:'FULL GAME' },
+  ].forEach((b, i) => {
+    const bx = W/2 - 200 + i*200, by = H/2 - 35;
+    const hov = inRect(mouse.x, mouse.y, bx-70, by, 140, 70);
+    frect(bx-70, by, 140, 70, hov ? '#1e1e3a' : '#111126');
+    srect(bx-70, by, 140, 70, hov ? '#FFFF44' : '#4444AA', 3);
+    txt(b.label, bx, by+22, 12, hov ? '#FFFF44' : '#FFFFFF');
+    txt(b.desc,  bx, by+50, 6,  '#666688');
+  });
+}
+
+// ═══════════════════════════════════════
+//  SETUP: TEAM SELECT
+// ═══════════════════════════════════════
+function drawSetupTeam(isHome) {
+  frect(0, 0, W, H, '#07071a');
+  txt(isHome ? 'SELECT  HOME  TEAM' : 'SELECT  AWAY  TEAM', W/2, 50, 12,
+      isHome ? '#44AAFF' : '#FF4444');
+  txt(isHome ? 'HOME  (後攻)' : 'AWAY  (先攻)', W/2, 85, 7, '#666688');
+
+  if (isHome && cfg.awayIdx >= 0) {
+    const at = TEAMS[cfg.awayIdx];
+    txt('AWAY: ' + at.name, W/2, 110, 7, at.primary === '#FFFFFF' ? '#CCCCCC' : at.primary);
+  }
+
+  const COLS=7, CW=122, CH=80, GAP=8;
+  const sx = (W - (COLS*CW + (COLS-1)*GAP)) / 2;
+  const sy = 140;
+
+  TEAMS.forEach((t, i) => {
+    const c = i % COLS, r = Math.floor(i / COLS);
+    const cx = sx + c*(CW+GAP), cy = sy + r*(CH+GAP);
+    const hov = inRect(mouse.x, mouse.y, cx, cy, CW, CH);
+    const dis = isHome && i === cfg.awayIdx;
+
+    ctx.globalAlpha = dis ? 0.3 : 1.0;
+    frect(cx, cy, CW, CH, hov ? '#1e2040' : '#10101e');
+    srect(cx, cy, CW, CH, dis ? '#333' : hov ? '#FFFF44' : t.primary, hov ? 3 : 2);
+
+    if (!dis) {
+      frect(cx+2, cy+2, CW-4, 8, t.primary);
+      frect(cx+2 + (CW-4)/2, cy+2, (CW-4)/2, 8, t.accent);
+    }
+
+    // Flag
+    ctx.font = '22px serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(t.flag, cx + CW/2, cy + 34);
+    ctx.globalAlpha = 1.0;
+
+    // Name
+    ctx.font = `6px "Press Start 2P", monospace`;
+    ctx.fillStyle = dis ? '#444' : hov ? '#FFFF44' : '#CCCCCC';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const ws = t.name.split(' ');
+    if (ws.length > 1) {
+      ctx.fillText(ws[0],             cx+CW/2, cy+56);
+      ctx.fillText(ws.slice(1).join(' '), cx+CW/2, cy+67);
+    } else {
+      ctx.fillText(t.name, cx+CW/2, cy+60);
+    }
+  });
+}
+
+// ═══════════════════════════════════════
+//  GAME: FIELD
+// ═══════════════════════════════════════
+function drawField() {
+  // Sky
+  frect(0, 62, W, H-62, '#0a1628');
+
+  // Grass stripes
+  for (let i = 0; i < 13; i++) {
+    frect(0, 62 + i*40, W, 40, i%2===0 ? '#1e5520' : '#1a4a18');
+  }
+
+  // Infield dirt
+  ctx.beginPath();
+  ctx.arc(512, 520, 310, 0, Math.PI*2);
+  ctx.fillStyle = '#5a3a1a'; ctx.fill();
+
+  // Infield grass
+  ctx.beginPath();
+  ctx.arc(512, 520, 248, 0, Math.PI*2);
+  ctx.fillStyle = '#1e5520'; ctx.fill();
+
+  // Foul lines (perspective)
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(512, H); ctx.lineTo(80, 80);
+  ctx.moveTo(512, H); ctx.lineTo(944, 80);
+  ctx.stroke();
+
+  // Pitcher rubber (far, small)
+  frect(508, 290, 8, 4, '#FFFFFF99');
+
+  // Home plate
+  frect(503, 472, 18, 12, '#FFFFFF');
+
+  // Strike zone
+  drawStrikeZone();
+}
+
+function drawStrikeZone() {
+  const { topY, topHW, botY, botHW, cx } = SZ;
+  ctx.beginPath();
+  ctx.moveTo(cx-topHW, topY); ctx.lineTo(cx+topHW, topY);
+  ctx.lineTo(cx+botHW, botY); ctx.lineTo(cx-botHW, botY);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255,255,220,0.05)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,180,0.75)';
+  ctx.lineWidth = 2; ctx.setLineDash([6,4]); ctx.stroke(); ctx.setLineDash([]);
+
+  // 3×3 grid inside
+  ctx.strokeStyle = 'rgba(255,255,180,0.22)'; ctx.lineWidth = 1;
+  for (let t=1; t<=2; t++) {
+    const f=t/3;
+    ctx.beginPath();
+    ctx.moveTo(cx - topHW + topHW*2*f, topY);
+    ctx.lineTo(cx - botHW + botHW*2*f, botY);
+    ctx.stroke();
+  }
+  for (let t=1; t<=2; t++) {
+    const f=t/3, y=topY+(botY-topY)*f, hw=topHW+(botHW-topHW)*f;
+    ctx.beginPath();
+    ctx.moveTo(cx-hw, y); ctx.lineTo(cx+hw, y); ctx.stroke();
+  }
+}
+
+// ═══════════════════════════════════════
+//  GAME: SCOREBOARD
+// ═══════════════════════════════════════
+function drawScoreboard() {
+  const aw = TEAMS[cfg.awayIdx], hm = TEAMS[cfg.homeIdx];
+
+  frect(0, 0, W, 62, '#0c0c0c');
+  srect(0, 0, W, 62, '#2a2a3a', 1);
+
+  // Away strip
+  frect(0, 0, 175, 62, aw.primary + 'DD');
+  txt(aw.name.slice(0,9), 88, 18, 6, aw.secondary);
+  txt(pad2(gs.score.away), 88, 44, 16, aw.secondary);
+
+  // Home strip
+  frect(W-175, 0, 175, 62, hm.primary + 'DD');
+  txt(hm.name.slice(0,9), W-88, 18, 6, hm.secondary);
+  txt(pad2(gs.score.home), W-88, 44, 16, hm.secondary);
+
+  // Inning center
+  txt(`${gs.inning}局`, W/2, 14, 9, '#FFFFFF');
+  txt(gs.half==='TOP' ? '▲' : '▼', W/2, 42, 16, gs.half==='TOP' ? '#FF8844' : '#44AAFF');
+
+  // Inning-by-inning grid
+  const gx0 = 185, colW = Math.min(38, (W-400-120) / cfg.innings);
+  ctx.font = pxFont(6); ctx.textAlign='center'; ctx.textBaseline='middle';
+  for (let i=0; i<cfg.innings; i++) {
+    const gx = gx0 + i*colW + colW/2;
+    ctx.fillStyle = (gs.inning===i+1) ? '#FFFF44' : '#445566';
+    ctx.fillText(i+1, gx, 10);
+    const av = gs.inningScores.away[i], hv = gs.inningScores.home[i];
+    ctx.fillStyle = '#99AABB';
+    ctx.fillText(av!==null ? av : '-', gx, 32);
+    ctx.fillText(hv!==null ? hv : '-', gx, 52);
+  }
+
+  // BSO lights
+  drawBSO(W-360, 4);
+}
+
+function pad2(n) { return String(n).padStart(2,'0'); }
+
+function drawBSO(x, y) {
+  // B=3 lights, S=2, O=2
+  const labels=['B','S','O'], counts=[gs.balls, gs.strikes, gs.outs];
+  const lights=[3,2,2], cols=['#44FF44','#FFFF44','#FF4444'];
+  labels.forEach((lb, i) => {
+    const lx = x + i*58;
+    txt(lb, lx, y+9, 6, '#AAAAAA');
+    for (let j=0; j<lights[i]; j++) {
+      const bx = lx - (lights[i]-1)*9 + j*18 - 9;
+      const on = j < counts[i];
+      frect(bx, y+18, 14, 14, on ? cols[i] : '#1e1e2e');
+      srect(bx, y+18, 14, 14, on ? cols[i] : '#3a3a4a', 1);
+    }
+  });
+}
+
+// ═══════════════════════════════════════
+//  GAME: BASE DIAMOND
+// ═══════════════════════════════════════
+function drawBaseDiamond() {
+  const dx=100, dy=400, r=30;
+  frect(dx-52, dy-52, 104, 104, '#0c0c1a');
+  srect(dx-52, dy-52, 104, 104, '#222233', 1);
+
+  // 2B top, 1B right, 3B left, home bottom
+  [
+    { bx:dx,    by:dy-r, idx:1 },
+    { bx:dx+r,  by:dy,   idx:0 },
+    { bx:dx-r,  by:dy,   idx:2 },
+    { bx:dx,    by:dy+r, idx:-1 },
+  ].forEach(({ bx, by, idx }) => {
+    const on = idx>=0 && gs.bases[idx];
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(Math.PI/4);
+    frect(-8,-8,16,16, on ? '#FFFF44' : '#2a2a3a');
+    srect(-8,-8,16,16, on ? '#FFFFFF' : '#444455', 1);
+    ctx.restore();
+  });
+
+  txt('BASES', dx, dy+r+18, 5, '#445566');
+}
+
+// ═══════════════════════════════════════
+//  GAME: BATTER CURSOR
+// ═══════════════════════════════════════
+function drawBatterCursor() {
+  const batting = gs.half==='TOP' ? TEAMS[cfg.awayIdx] : TEAMS[cfg.homeIdx];
+  const { batX:bx, batY:by } = gs;
+
+  // Glow ring
+  ctx.beginPath(); ctx.arc(bx, by, 44, 0, Math.PI*2);
+  ctx.strokeStyle = batting.accent + '55'; ctx.lineWidth=5; ctx.stroke();
+
+  // Main ring
+  ctx.beginPath(); ctx.arc(bx, by, 38, 0, Math.PI*2);
+  ctx.strokeStyle = batting.primary; ctx.lineWidth=3; ctx.stroke();
+
+  // Center dot
+  ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI*2);
+  ctx.fillStyle = batting.accent; ctx.fill();
+
+  // Crosshair
+  ctx.strokeStyle = batting.secondary + '77'; ctx.lineWidth=1;
+  ctx.setLineDash([4,4]);
+  [[bx-38,by,bx-10,by],[bx+10,by,bx+38,by],[bx,by-38,bx,by-10],[bx,by+10,bx,by+38]].forEach(([x1,y1,x2,y2])=>{
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  });
+  ctx.setLineDash([]);
+}
+
+// ═══════════════════════════════════════
+//  GAME: INFO PANEL
+// ═══════════════════════════════════════
+function drawInfoPanel() {
+  const px=W-195, py=70;
+  frect(px, py, 188, 210, 'rgba(10,10,26,0.88)');
+  srect(px, py, 188, 210, '#222233', 1);
+
+  const batting  = gs.half==='TOP' ? TEAMS[cfg.awayIdx] : TEAMS[cfg.homeIdx];
+  const pitching = gs.half==='TOP' ? TEAMS[cfg.homeIdx] : TEAMS[cfg.awayIdx];
+
+  txt('BAT',   px+94, py+16, 6, '#AAAAAA');
+  txt(batting.name.slice(0,10),  px+94, py+32, 5, batting.primary==='#FFFFFF'?'#DDDDDD':batting.primary);
+  txt('PITCH', px+94, py+52, 6, '#AAAAAA');
+  txt(pitching.name.slice(0,10), px+94, py+68, 5, pitching.primary==='#FFFFFF'?'#DDDDDD':pitching.primary);
+
+  frect(px+8, py+84, 172, 1, '#222233');
+
+  txt('─ PHASE  1 ─', px+94, py+100, 6, '#FFFF44');
+  txt('FIELD  CHECK', px+94, py+120, 5, '#666688');
+
+  frect(px+8, py+134, 172, 1, '#222233');
+
+  txt('MOVE:', px+94, py+152, 5, '#888899');
+  txt('MOUSE / TOUCH', px+94, py+168, 5, '#666688');
+  txt('SWING: CLICK', px+94, py+186, 5, '#666688');
+  txt('(PHASE 2→)', px+94, py+202, 5, '#334455');
+}
+
+// ═══════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════
+function loop() {
+  ctx.clearRect(0, 0, W, H);
+
+  if (phase === 'TITLE')        drawTitle();
+  else if (phase === 'SETUP_INNING') drawSetupInning();
+  else if (phase === 'SETUP_AWAY')   drawSetupTeam(false);
+  else if (phase === 'SETUP_HOME')   drawSetupTeam(true);
+  else if (phase === 'GAME') {
+    drawField();
+    drawScoreboard();
+    drawBaseDiamond();
+    drawBatterCursor();
+    drawInfoPanel();
+  }
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
 </body>
-
 </html>
